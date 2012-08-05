@@ -1,0 +1,4 @@
+clubpage
+========
+
+Club information page

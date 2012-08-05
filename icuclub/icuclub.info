@@ -1,0 +1,16 @@
+name = ICU Club
+description = A module generating urls at /club/centre_code, where centre_code is the centre number as contained in NewERPOL. Accessing the page will display details pulled in from NewERPOL.
+package = Imperial College Union
+core = 7.x
+files[] = icuclub.module
+files[] = icuclub_club.tpl.php
+files[] = README.md
+files[] = icuclub_atoz.tpl.php
+files[] = icuclub_block_memberships.tpl.php
+files[] = icuclub_block_atoz.tpl.php
+dependencies[] = block
+dependencies[] = search
+
+version = "7.x-1.0"
+core = "7.x"
+configure = admin/config/system/icuclub

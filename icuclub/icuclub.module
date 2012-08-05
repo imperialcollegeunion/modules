@@ -1,0 +1,792 @@
+<?php
+
+/**
+ * @file
+ * Module file for icuclub_module.
+ */
+
+// Registered URLs for this club
+function icuclub_menu() {
+  $items['icuclub_cleancache/%'] = array(
+    'page callback' => 'icuclub_clean_atoz', // Page function
+    'page arguments' => array(1), // The centre is the 2nd parameter (starting at 0)
+    'type' => MENU_CALLBACK, // Do not show menu item
+    'access callback' => TRUE, // Page always accessible
+  );
+
+  $items['icuclub_cleancache/%/club/%'] = array(
+    'page callback' => 'icuclub_clean_club', // Page function
+    'page arguments' => array(1), // The centre is the 2nd parameter (starting at 0)
+    'type' => MENU_CALLBACK, // Do not show menu item
+    'access callback' => TRUE, // Page always accessible
+  );
+
+  $items['activities/a-to-z'] = array(
+    'page callback' => 'icuclub_atoz', // Page function
+    'menu_name' => 'menu-a', // Inject into activities menu
+    'title' => 'A to Z',
+    'access callback' => TRUE, // Page always accessible
+  );
+
+  $items['activities/a-to-z/%'] = array(
+    'page callback' => 'icuclub_club', // Page function
+    'page arguments' => array(2), // The centre is the 2nd parameter (starting at 0)
+    'type' => MENU_CALLBACK, // Do not show menu item
+    'access callback' => TRUE, // Page always accessible
+  );
+
+  $items['activities/a-to-z/%/image'] = array(
+    'page callback' => 'icuclub_club_image', // Page function
+    'page arguments' => array(2), // The centre is the 2nd parameter (starting at 0)
+    'type' => MENU_CALLBACK, // Do not show menu item
+    'access callback' => TRUE, // Page always accessible
+  );
+
+  $items['admin/config/system/icuclub'] = array( // This positions it in configuration -> system
+	'title' => t('ICU Club Hander'), // Page title, also shown as menu title
+    'description' => t('Settings relating to the A-Z of activites, club blocks, and club pages'),
+	'page callback' => 'drupal_get_form', // Signifies a form page
+	'page arguments' => array('icuclub_admin'), // Form is here
+    'type' => MENU_NORMAL_ITEM, // Do show menu item
+	'access arguments' => array('access administration pages'), // Admins only
+  );
+
+  return $items;
+}
+
+// Admin page
+function icuclub_admin() {
+  $form = array();
+
+  $form['icuclub_hostname'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Database hostname'),
+    '#default_value' => variable_get('icuclub_hostname'),
+    '#description' => t("Host for the database containing the eActivities tables. If you need to specify an instance, use the port, not \instancename"),
+    '#required' => TRUE,
+  );
+
+  $form['icuclub_username'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Database username'),
+    '#default_value' => variable_get('icuclub_username'),
+    '#description' => t("Username for the database, must have access to the CurrClubHealth, PeopleClubMemberships, PeopleDetails, PeoplePositions, and PreviousProfiles views (and maybe more, Philip needs to update this later)"),
+    '#required' => TRUE,
+  );
+
+  $form['icuclub_password'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Database password'),
+    '#default_value' => variable_get('icuclub_password'),
+    '#required' => TRUE,
+  );
+
+  $form['icuclub_database'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Database name'),
+    '#default_value' => variable_get('icuclub_database'),
+    '#description' => t("Database name, containing the above views"),
+    '#required' => TRUE,
+  );
+
+  $form['icuclub_apikey'] = array(
+    '#type' => 'textfield',
+    '#title' => t('API Key'),
+    '#default_value' => variable_get('icuclub_apikey'),
+    '#description' => t("API key for eActivities to delete page caches - do not change without also changing the eActivities code or changes to club pages will not show"),
+    '#required' => TRUE,
+  );
+
+  $form['icuclub_atoz_intro'] = array(
+    '#type' => 'textarea',
+    '#title' => t('A-Z Introduction'),
+    '#default_value' => variable_get('icuclub_atoz_intro'),
+    '#description' => t("Introductory text for the CSP A-Z page, note that the value you specify here will be enclosed in paragraph tags when displayed"),
+    '#required' => TRUE,
+  );
+
+  $form['icuclub_atoz_about'] = array(
+    '#type' => 'textarea',
+    '#title' => t('A-Z About text'),
+    '#default_value' => variable_get('icuclub_atoz_about'),
+    '#description' => t("Text for the 'About our clubs and societies' part of the A-z. Note that the value you specify here will be enclosed in paragraph tags when displayed"),
+    '#required' => TRUE,
+  );
+
+  $form['icuclub_filter'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Centres to ignore'),
+    '#default_value' => variable_get('icuclub_filter'),
+    '#description' => t("Comma separated list of centres to ignore in the A-Z list, the membership and club blocks, as well as club pages not to show. Example syntax: 123,456. If there is only one centre to ignore, simply enter its number"),
+    '#required' => FALSE,
+  );
+
+
+  return system_settings_form($form); // this will also save
+}
+
+// Define templates
+function icuclub_theme() {
+    return array(
+        'icuclub_club' => array( // name of theme
+            'template' => 'icuclub_club' // name of template to load, .tpl.php will be added
+        ),
+        'icuclub_atoz' => array(
+            'template' => 'icuclub_atoz'
+        ),
+        'icuclub_block_memberships' => array(
+            'template' => 'icuclub_block_memberships'
+        ),
+        'icuclub_block_atoz' => array(
+            'template' => 'icuclub_block_atoz'
+        )
+    );
+}
+
+// Define blocks
+function icuclub_block_info() {
+  $blocks['membership'] = array(
+    'info' => t('Club membership'),
+    'cache' => DRUPAL_NO_CACHE
+  );
+
+  $blocks['atoz'] = array(
+    'info' => t('Club A to Z'),
+    'cache' => DRUPAL_NO_CACHE
+  );
+
+  return $blocks;
+}
+
+// View blocks
+function icuclub_block_view($delta = '') {
+  switch ($delta) {
+    case 'membership':
+      $block['subject'] = t('My Clubs');
+      $block['content'] = block_icuclub_membership($delta); // Load from function
+      break;
+    case 'atoz':
+      $block['subject'] = t('Club, Society & Project A to Z');
+      $block['content'] = block_icuclub_atoz($delta); // Load from function
+      break;
+  }
+  return $block;
+}
+
+// Search hook: will find club pages
+function icuclub_search_execute($keys = NULL, $conditions = NULL) {
+  // Search club names and descriptions for the query and output values, luckily we can do this in one query so its nice and nippy
+  $db = @mssql_connect(variable_get('icuclub_hostname'), variable_get('icuclub_username'), variable_get('icuclub_password'));
+  if(!$db) {
+    return; // db down
+  }
+
+  mssql_select_db(variable_get('icuclub_database'));
+
+  // Avoid truncation
+  mssql_query ( 'SET TEXTSIZE 2147483647', $db);
+  ini_set ( 'mssql.textlimit', '2147483647');
+  ini_set ( 'mssql.textsize', '2147483647');
+
+  $query = mssql_escape($keys);
+
+$sql ="
+  SELECT [CurrClubHealth].[OCDesc]        ,[CurrClubHealth].[Centre]		    ,[PreviousProfiles2].[YearDesc]        ,CAST ([PreviousProfiles2].[LargeProfile] AS TEXT) [LargeProfile]  FROM [CurrClubHealth]  CROSS APPLY ( SELECT TOP 1 [PreviousProfiles].[YearDesc], [PreviousProfiles].[LargeProfile]                FROM [PreviousProfiles] WHERE [PreviousProfiles].[OCID] = [CurrClubHealth].[OCID]                ORDER BY [PreviousProfiles].[YearDesc] DESC              ) [PreviousProfiles2]    WHERE [CurrClubHealth].[OCDesc] LIKE '%$query%'
+    OR [LargeProfile] LIKE '%$query%'    AND [StatusDesc] = 'Active'
+  ";
+
+  if(variable_get('icuclub_filter') != '' && variable_get('icuclub_filter') != NULL) {
+    $filters = explode(',', variable_get('icuclub_filter'));
+
+    foreach($filters as $filter) {
+      if(!is_numeric($filter)): continue; endif; // Only numeric centres (i.e. no D/U etc.)
+      $sql .= "AND [CurrClubHealth].[Centre] != '$filter'";
+    }
+  }
+
+  $results_array = array();
+
+  $result = mssql_query($sql);
+  if($result !== TRUE && $result !== FALSE) {
+    while($res = mssql_fetch_object($result)) {
+      if(!is_numeric($res->Centre)) { continue; } // numeric centres
+      preg_match('/(?<= )(.*)/', $res->OCDesc, $nicetitle);
+      $results_array[$res->Centre] = array('title' => $nicetitle[0], 'link' => url('activities/a-to-z/'.$res->Centre), 'snippet' => search_excerpt($keys, $res->LargeProfile));
+    }
+  }
+
+  return $results_array;
+}
+
+// Implement search mode
+function icuclub_search_info() {
+  return array(
+    'title' => 'Activities', 
+    'path' => 'activities', 
+  );
+}
+
+// FIXME: move
+// FIXME: is this sufficient??
+function mssql_escape($data) {
+    if(is_numeric($data))
+        return $data;
+    return str_replace("'", "''", $data);
+}
+
+/* Non-scaffold code is below */
+// callback to clean atoz cache
+function icuclub_clean_atoz($key) {
+  // API key
+  if($key != variable_get('icuclub_apikey')) {
+    return 'bad key';
+  }
+
+  cache_clear_all('icuclub_cache_atoz'); // For when we create a new club/delete/rename/change club category
+  return 'ok';
+}
+
+// callback to clean page cache
+function icuclub_clean_club($key, $centre) {
+  if($key != variable_get('icuclub_apikey')) {
+    return 'bad key';
+  }
+
+  if(!is_numeric($centre)) {
+    return 'bad centre';
+  }
+
+  cache_clear_all('icuclub_cache_image_'.$centre); // For when a club profile and/or image changes
+  cache_clear_all('icuclub_cache_page_'.$centre);
+  return 'ok';
+}
+
+// callback for atoz
+function icuclub_atoz() {
+  $intro = variable_get('icuclub_atoz_intro');
+  $about = variable_get('icuclub_atoz_about');
+
+  // See if we have got a cached copy of the A-Z, if we do, no point checking NewERPOL as this is time consuming
+  if(!cache_get('icuclub_cache_atoz')) {
+    // If we dont have a cache'd set, generate cache
+    icuclub_genatoz();
+  }
+
+  // No matter what happened before, we should have a cache now
+  $cache = cache_get('icuclub_cache_atoz')->data;
+
+  if(!is_array($cache)) {
+    // No societies/some other error
+    drupal_not_found();
+    return;
+  }
+
+  $societies = $cache['societies'];
+  $sections = $cache['sections'];
+
+  drupal_set_title('Club, Society & Project A to Z');
+
+  $output = theme("icuclub_atoz", array('atozintro' => $intro, 'atozabout' => $about, 'atozclubs' => $societies, 'atozcats' => $sections));
+  return $output;
+}
+
+// callback for club image
+function icuclub_club_image($centre) {
+  // Club centres must be numeric
+  if (!is_numeric($centre)) {
+    drupal_not_found();
+    return;  // We actually don't get here.
+  }
+
+  // See if we have got a cached copy of the image, if we do, no point checking NewERPOL as this is *VERY* time consuming (loading from the drupal cache seems a LOT faster)
+  if(!cache_get('icuclub_cache_image_'.$centre)) {
+    // Get the club name, status and profile by centre
+    $db = @mssql_connect(variable_get('icuclub_hostname'), variable_get('icuclub_username'), variable_get('icuclub_password'));
+    if(!$db) {
+      drupal_not_found(); // database down
+      return;
+    }
+  
+    mssql_select_db(variable_get('icuclub_database'));
+  
+    // Avoid truncation
+    mssql_query ( 'SET TEXTSIZE 2147483647', $db);
+    ini_set ( 'mssql.textlimit', '2147483647');
+    ini_set ( 'mssql.textsize', '2147483647');
+  
+    // Get profile ID
+    $sql = "
+  SELECT TOP 1 [PreviousProfiles].[ID]    FROM [CurrClubHealth]    INNER JOIN [PreviousProfiles] ON [CurrClubHealth].[OCID] = [PreviousProfiles].[OCID]
+    WHERE [CurrClubHealth].[Centre] = '$centre'
+    AND [CurrClubHealth].[StatusDesc] = 'Active'
+  ";
+  
+    // Remove unwanted clubs specified in config
+    if(variable_get('icuclub_filter') != '' && variable_get('icuclub_filter') != NULL) {
+      $filters = explode(',', variable_get('icuclub_filter'));
+  
+      foreach($filters as $filter) {
+        if(!is_numeric($filter)): continue; endif; // Only numeric centres (i.e. no D/U etc.)
+        $sql .= "AND [CurrClubHealth].[Centre] != '$filter'";
+      }
+    }
+  
+  $sql .= "    ORDER BY [PreviousProfiles].[ID] DESC
+  ";
+  
+    $result = mssql_query($sql);
+    if($result === TRUE || $result === FALSE) {
+       drupal_not_found(); // No society
+       return;
+    }
+  
+    $res = mssql_fetch_object($result);
+    if(!is_object($res)) {
+       drupal_not_found(); // No society
+       return;
+    }
+  
+    $profile_id = $res->ID;
+  
+    // Image
+    $sql = "
+  SELECT TOP 1         [UpFiles].[UpFile]        ,[UpFiles].[FileType]    FROM [UpFiles]    INNER JOIN [ProfileUpFiles] ON [ProfileUpFiles].[ImageID] = [UpFiles].[ID]
+    WHERE [ProfileUpFiles].[ProfileID] = '$profile_id'
+  ";
+  
+    $result = mssql_query($sql);
+    if($result === TRUE || $result === FALSE) {
+       drupal_not_found();
+    }
+  
+    $res = mssql_fetch_object($result);
+    if(!is_object($res)) {
+       drupal_not_found();
+    }
+    cache_set('icuclub_cache_image_'.$centre, $res);
+  } else {
+    $res = cache_get('icuclub_cache_image_'.$centre)->data;
+  }
+  header('Content-Type: '.$res->FileType);
+
+  echo $res->UpFile;
+  return;
+}
+
+// callback for page
+function icuclub_club($centre) {
+  // Club centres must be numeric
+  if (!is_numeric($centre)) {
+    drupal_not_found();
+    return;  // We actually don't get here.
+  }
+
+  // Connect to database before cache as we still need membership counts from NewERPOL
+  $db = @mssql_connect(variable_get('icuclub_hostname'), variable_get('icuclub_username'), variable_get('icuclub_password'));
+  if(!$db) {
+    drupal_not_found(); // database down
+    return;
+  }
+
+  mssql_select_db(variable_get('icuclub_database'));
+
+  // Avoid truncation
+  mssql_query ( 'SET TEXTSIZE 2147483647', $db);
+  ini_set ( 'mssql.textlimit', '2147483647');
+  ini_set ( 'mssql.textsize', '2147483647');
+
+  // Everything apart from membership counts can be obtained from the cache, so see if we cached it
+  if(!cache_get('icuclub_cache_page_'.$centre)) {
+    // No need to worry about escaping, we are numeric! Cast to avoid truncation
+    $sql = "
+  SELECT TOP 1 [CurrClubHealth].[OCDesc]        ,[CurrClubHealth].[StatusDesc]        ,[CurrClubHealth].[Centre]
+        ,[PreviousProfiles].[ID]
+        ,[PreviousProfiles].[ProfileCategoryID]
+  	  ,CAST ([PreviousProfiles].[LargeProfile] AS TEXT) [LargeProfile]
+    FROM [CurrClubHealth]    INNER JOIN [PreviousProfiles] ON [CurrClubHealth].[OCID] = [PreviousProfiles].[OCID]
+    WHERE [CurrClubHealth].[Centre] = '$centre'
+    AND [CurrClubHealth].[StatusDesc] = 'Active'
+  ";
+      // Remove unwanted clubs specified in config
+    if(variable_get('icuclub_filter') != '' && variable_get('icuclub_filter') != NULL) {
+      $filters = explode(',', variable_get('icuclub_filter'));
+  
+      foreach($filters as $filter) {
+        if(!is_numeric($filter)): continue; endif; // Only numeric centres (i.e. no D/U etc.)
+        $sql .= "AND [CurrClubHealth].[Centre] != '$filter'";
+      }
+    }
+  
+  $sql .= "    ORDER BY [PreviousProfiles].[ID] DESC
+  ";
+  
+    $result = mssql_query($sql);
+    if($result === TRUE || $result === FALSE) {
+       drupal_not_found(); // No society
+       return;
+    }
+  
+    $res = mssql_fetch_object($result);
+    if(!is_object($res)) {
+       drupal_not_found(); // No society
+       return;
+    }
+  
+    $profile_id = $res->ID;
+  
+    // Load the theme icuclub_club with given parameters
+    preg_match('/(?<= )(.*)/', $res->OCDesc, $nicetitle);
+  
+    $clubdesc = $res->LargeProfile;
+    $OCDesc = $res->OCDesc;
+  
+    // Find profile category description (Can't JOIN as if unset, we lose the club, but a different JOIN might fix this)
+    // for future ref, here is the JOINed sql:
+    /*
+  SELECT TOP 1 [CurrClubHealth].[OCDesc]        ,[CurrClubHealth].[StatusDesc]        ,[CurrClubHealth].[Centre]        ,[PreviousProfiles].[ID]        ,[ProfileCategories].[ProfileCatDesc]  	  ,CAST ([PreviousProfiles].[LargeProfile] AS TEXT)    FROM [CurrClubHealth]    INNER JOIN [PreviousProfiles] ON [CurrClubHealth].[OCID] = [PreviousProfiles].[OCID]    INNER JOIN [ProfileCategories] ON [ProfileCategories].[ProfileCatID] = [PreviousProfiles].[ProfileCategoryID]    WHERE [CurrClubHealth].[Centre] = '$centre'    AND [CurrClubHealth].[StatusDesc] = 'Active'    ORDER BY [PreviousProfiles].[ID] DESC
+    */
+  
+    $sql = "
+  SELECT [ProfileCatDesc]
+    FROM [ProfileCategories]    WHERE [ProfileCatID] = '$res->ProfileCategoryID'
+  ";
+  
+    $sectionname = null;
+  
+    $result = mssql_query($sql);
+    if($result === TRUE || $result === FALSE) {
+       drupal_not_found(); // No society
+       return;
+    }
+  
+    $res = mssql_fetch_object($result);
+    if(!is_object($res)) {
+      $sectionname = "Unknown club type";
+      $sectioncode = 'unknown';
+    } else {
+      $sectionname = $res->ProfileCatDesc;
+      $sectioncode = strtolower(str_replace(' ', '_', str_replace('&', '_', $sectionname)));
+    }
+  
+    // Contact Details
+    $sql = "
+  SELECT TOP 1 [Website]        ,[GeneralEmail]
+    FROM [OffComms]    WHERE [Centre] = '$centre'
+  ";
+  
+    $result = mssql_query($sql);
+    if($result === TRUE || $result === FALSE) {
+       drupal_not_found(); // No society
+       return;
+    }
+  
+    $res = mssql_fetch_object($result);
+    if(!is_object($res)) {
+       drupal_not_found(); // No society
+       return;
+    }
+  
+    if($res->GeneralEmail == null) {
+      $email = t('No email address has been recorded');
+    } elseif(strpos($res->GeneralEmail, '@') === FALSE) {
+      $email = $res->GeneralEmail.'@imperial.ac.uk'; // If just a username
+    } else {
+      $email = $res->GeneralEmail;
+    }
+  
+    if($res->Website == null) {
+      $website = t('No website address has been recorded');
+    } else {
+      $website = '<a href="'.$res->Website.'">'.$res->Website.'</a>';
+    }
+  
+    // Committee
+    $sql = "
+  SELECT [PeoplePositions].[YearPost]        ,[PeoplePositions].[YearStart]  	  ,[PeopleDetails].[FirstName]  	  ,[PeopleDetails].[Surname]    FROM [PeoplePositions]    INNER JOIN [PeopleDetails] ON [PeoplePositions].[PeopleID] = [PeopleDetails].[ID]    WHERE [PeoplePositions].[OCDesc] = '$OCDesc'
+    ORDER BY [PeoplePositions].[YearStart] DESC
+  ";
+  
+    $result = mssql_query($sql);
+    if($result === TRUE || $result === FALSE) {
+       drupal_not_found(); // No committee found means no society
+       return;
+    }
+  
+    $acc_time = 0;
+    $committee = array();
+  
+    while($res = mssql_fetch_object($result)) {
+      $date = strtotime($res->YearStart);
+      
+      // Dont show positions not yet started
+      if($date > time()) {
+        continue;
+      }
+  
+      if($date != $acc_time && $acc_time != 0) {
+        continue;
+      } // Only show one year's worth
+  
+      $acc_time = $date;
+      $post = explode(' - ', $res->YearPost); // remove junk, keep position
+      $committee[$post[1]] = $res->FirstName.' '.$res->Surname;
+    }
+  
+    // Image
+    $sql = "
+  SELECT COUNT(*) AS num     FROM [UpFiles]    INNER JOIN [ProfileUpFiles] ON [ProfileUpFiles].[ImageID] = [UpFiles].[ID]
+    WHERE [ProfileUpFiles].[ProfileID] = '$profile_id'
+  ";
+  
+    $result = mssql_query($sql);
+    if($result === TRUE || $result === FALSE) {
+       drupal_not_found();
+    }
+  
+    $res = mssql_fetch_object($result);
+    if(!is_object($res)) {
+       drupal_not_found();
+    }
+  
+    if($res->num > 0) {
+      $hasimage = true;
+    } else {
+      $hasimage = false;
+    }
+  
+    $cache = array('clubdesc' => $clubdesc, 'clubsection' => $sectioncode, 'clubsectionname' => $sectionname, 'clubemail' => $email, 'clubwebsite' => $website, 'clubhasimage' => $hasimage, 'clubcommittee' => $committee, 'nicetitle' => $nicetitle, 'OCDesc' => $OCDesc);
+    cache_set('icuclub_cache_page_'.$centre, $cache);
+  } else {
+    $res = cache_get('icuclub_cache_page_'.$centre)->data;
+    $clubdesc = $res['clubdesc'];
+    $sectioncode = $res['clubsection'];
+    $sectionname = $res['clubsectionname'];
+    $email = $res['clubemail'];
+    $website = $res['clubwebsite'];
+    $hasimage = $res['clubhasimage'];
+    $committee = $res['clubcommittee'];
+    $OCDesc = $res['OCDesc'];
+    $nicetitle = $res['nicetitle'];
+  }
+
+  // Membership
+  // Current
+  $curryear = (int) date('Y', time());
+  
+  $sql = "
+SELECT COUNT(*) AS num FROM [PeopleClubMemberships]WHERE [YearStart] = '".$curryear."-08-01 00:00:00.000'AND [OCDesc] = '$OCDesc'
+";
+
+  $num_curr = null;
+  $result = mssql_query($sql);
+  if($result === TRUE || $result === FALSE) {
+      $num_curr = 0;
+  }
+
+  $res = mssql_fetch_object($result);
+  if(!is_object($res)) {
+      $num_curr = 0;
+  }
+
+  if($num_curr !== 0) {
+    $num_curr = $res->num;
+  }
+
+  // Last
+  $curryear = $curryear - 1;
+
+  $sql = "
+SELECT COUNT(*) AS num FROM [PeopleClubMemberships]WHERE [YearStart] = '".$curryear."-08-01 00:00:00.000'AND [OCDesc] = '$OCDesc'
+";
+
+  $num_last = null;
+  $result = mssql_query($sql);
+  if($result === TRUE || $result === FALSE) {
+      $num_last = 0;
+  }
+
+  $res = mssql_fetch_object($result);
+  if(!is_object($res)) {
+      $num_last = 0;
+  }
+
+  if($num_last !== 0) {
+    $num_last = $res->num;
+  }
+
+  mssql_close($db);
+
+  drupal_set_title($nicetitle[0]);
+
+  $output = theme("icuclub_club", array('clubcentre' => $centre, 'clubdesc' => $clubdesc, 'clubsection' => $sectioncode, 'clubsectionname' => $sectionname, 'clubemail' => $email, 'clubwebsite' => $website, 'clubhasimage' => $hasimage, 'clubcommittee' => $committee, 'clubcurrentmembers' => $num_curr, 'clublastmembers' => $num_last));
+  return $output;
+}
+
+// Membership block - find clubs the current user is a member of
+function block_icuclub_membership($delta) {
+  global $user;
+  $db = @mssql_connect(variable_get('icuclub_hostname'), variable_get('icuclub_username'), variable_get('icuclub_password'));
+  if(!$db) {
+    $output = theme("icuclub_block_memberships", array('clubs' => array()));
+    return $output;
+  }
+
+  mssql_select_db(variable_get('icuclub_database'));
+
+  // Find CID
+  $sql = "
+SELECT [CID]  FROM [PeopleDetails]  WHERE [Login] = '".strtolower($user->name)."'
+";
+
+  $result = mssql_query($sql);
+  if($result === TRUE || $result === FALSE) {
+    $output = theme("icuclub_block_memberships", array('clubs' => array()));
+    return $output;
+  }
+
+  $res = mssql_fetch_object($result);
+  if(!is_object($res)) {
+    $output = theme("icuclub_block_memberships", array('clubs' => array()));
+    return $output;
+  }
+
+  $cid = $res->CID;
+
+  // Now find clubs, surely there must be a way to merge the two into one
+  $curryear = (int) date('Y', time());
+  $sql = "
+SELECT [CurrClubHealth].[Centre]  ,[PeopleClubMemberships].[OCDesc]  FROM [PeopleClubMemberships]  INNER JOIN [CurrClubHealth] ON [PeopleClubMemberships].[OCDesc] = [CurrClubHealth].[OCDesc]  WHERE [PeopleClubMemberships].[CID] = '$cid'
+  AND [YearStart] = '".$curryear."-08-01 00:00:00.000'
+";
+
+  $result = mssql_query($sql);
+  if($result === TRUE || $result === FALSE) {
+    $output = theme("icuclub_block_memberships", array('clubs' => array()));
+    return $output;
+  }
+
+  $socs = array();
+  while($res = mssql_fetch_object($result)) {
+    preg_match('/(?<= )(.*)/', $res->OCDesc, $nicetitle);
+    $socs[$res->Centre] = $nicetitle[0];
+  }
+
+  $output = theme("icuclub_block_memberships", array('clubs' => $socs));
+  return $output;
+}
+
+// Club A-Z block
+function block_icuclub_atoz($delta) {
+  // this is similar to the A-Z page
+
+  // See if we have got a cached copy of the A-Z, if we do, no point checking NewERPOL as this is time consuming
+  if(!cache_get('icuclub_cache_atoz')) {
+    // If we dont have a cache'd set, generate cache
+    icuclub_genatoz();
+  }
+
+  // No matter what happened before, we should have a cache now
+  $cache = cache_get('icuclub_cache_atoz')->data;
+
+  if(!is_array($cache)) {
+    // No societies/some other error
+    return; // DON'T return not found, just do nothing and the block won't show
+  }
+
+  $societies = $cache['societies'];
+
+  // Now put these into A-Z arrays
+  $letters = array('A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z');
+
+  $final_societies = array();
+  foreach($societies as $society) {
+    // Check if we are alphanumeric, if not we go in the hash letter
+    if(array_search(strtoupper($society['letter']), $letters) === FALSE) {
+      $letter = '#';
+    } else {
+      $letter = strtoupper($society['letter']);
+    }
+
+    // See if an array for this letter exists
+    if(!array_key_exists($letter, $final_societies)) {
+      $final_societies[$letter] = array();
+    }
+
+    // Store society
+    $final_societies[$letter][] = $society;
+  }
+
+  $output = theme("icuclub_block_atoz", array('atozclubs' => $final_societies));
+  return $output;
+}
+
+// Generate the A-Z cache
+function icuclub_genatoz() {
+  // Get the club name, centre, and category
+  $db = @mssql_connect(variable_get('icuclub_hostname'), variable_get('icuclub_username'), variable_get('icuclub_password'));
+  if(!$db) {
+    // database down
+    return;
+  }
+
+  mssql_select_db(variable_get('icuclub_database'));
+
+  // First get profile types
+  $sql = "
+SELECT [ProfileCatDesc]
+      ,[ProfileCatID]
+  FROM [ProfileCategories]";
+
+  $sections = array();
+
+  $result = mssql_query($sql);
+  if($result === TRUE || $result === FALSE) {
+      // No profile types
+      return;
+  }
+
+  while($res = mssql_fetch_object($result)) {
+    $sections[$res->ProfileCatID] = array('name' => $res->ProfileCatDesc, 'code' => strtolower(str_replace(' ', '_', str_replace('&', '_', $res->ProfileCatDesc))));
+  }
+
+  // Now get all clubs wgucg are actuve
+  $sql = "
+SELECT [CurrClubHealth].[OCDesc]      ,[CurrClubHealth].[Centre]      ,[PreviousProfiles2].[ProfileCategoryID]	  ,[PreviousProfiles2].[OCID]	  ,[PreviousProfiles2].[YearDesc]  FROM [CurrClubHealth]  CROSS APPLY ( SELECT TOP 1 [PreviousProfiles].[ProfileCategoryID], [PreviousProfiles].[OCID], [PreviousProfiles].[YearDesc]                FROM [PreviousProfiles] WHERE [PreviousProfiles].[OCID] = [CurrClubHealth].[OCID]                ORDER BY [PreviousProfiles].[YearDesc] DESC
+              ) [PreviousProfiles2]  WHERE [CurrClubHealth].[StatusDesc] = 'Active'";
+
+  // Remove unwanted clubs specified in config
+  if(variable_get('icuclub_filter') != '' && variable_get('icuclub_filter') != NULL) {
+    $filters = explode(',', variable_get('icuclub_filter'));
+
+    foreach($filters as $filter) {
+      if(!is_numeric($filter)): continue; endif; // Only numeric centres (i.e. no D/U etc.)
+      $sql .= "AND [CurrClubHealth].[Centre] != '$filter'";
+    }
+  }
+
+  $result = mssql_query($sql);
+  if($result === TRUE || $result === FALSE) {
+      // No societies found (unlikely!!)
+      return;
+  }
+
+  $societies = array();
+
+  // For every society, strip out the management group and store in the final array
+  while($res = mssql_fetch_object($result)) {
+    if(!is_numeric($res->Centre)): continue; endif; // Only numeric centres (i.e. no D/U etc.)
+
+    preg_match('/(?<= )(.*)/', $res->OCDesc, $nicetitle);
+    $societies[strtolower($nicetitle[0]).'_'.$res->Centre] = array('centre' => $res->Centre, 'name' => $nicetitle[0], 'letter' => strtolower($nicetitle[0][0]), 'type' => $res->ProfileCategoryID);
+  }
+
+  // Sort alphabetically
+  ksort($societies);
+
+  $cache = array('societies' => $societies, 'sections' => $sections);
+  cache_set('icuclub_cache_atoz', $cache); // Set cache
+}
+
+/**
+ * @} End of "defgroup icuclub".
+ */
