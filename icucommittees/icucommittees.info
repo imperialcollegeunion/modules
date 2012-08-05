@@ -6,6 +6,7 @@ files[] = icucommittees.module
 files[] = icucommittees.tpl.php
 files[] = icucommittees_year.tpl.php
 
+dependencies[] = icuerpol
+
 version = "7.x-1.0"
 core = "7.x"
-configure = admin/config/system/icucommittees

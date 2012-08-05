@@ -43,54 +43,7 @@ $items['committees/%/%/%/%'] = array(
     'access callback' => TRUE, // Page always accessible
   );
 
-                    
-  $items['admin/config/system/icucommittees'] = array( // This positions it in configuration -> system
-	'title' => t('ICU Committees Hander Database'), // Page title, also shown as menu title
-	'page callback' => 'drupal_get_form', // Signifies a form page
-	'page arguments' => array('icucommittees_admin'), // Form is here
-    'type' => MENU_NORMAL_ITEM, // Do show menu item
-	'access arguments' => array('access administration pages'), // Admins only
-  );
-
   return $items;
-}
-
-// Admin page
-function icucommittees_admin() {
-  $form = array();
-
-  $form['icucommittees_hostname'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Database hostname'),
-    '#default_value' => variable_get('icucommittees_hostname'),
-    '#description' => t("Host for the database containing the eActivities tables. If you need to specify an instance, use the port, not \instancename"),
-    '#required' => TRUE,
-  );
-
-  $form['icucommittees_username'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Database username'),
-    '#default_value' => variable_get('icucommittees_username'),
-    '#description' => t("Username for the database"),
-    '#required' => TRUE,
-  );
-
-  $form['icucommittees_password'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Database password'),
-    '#default_value' => variable_get('icucommittees_password'),
-    '#required' => TRUE,
-  );
-
-  $form['icucommittees_database'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Database name'),
-    '#default_value' => variable_get('icucommittees_database'),
-    '#description' => t("Database name, containing the above views"),
-    '#required' => TRUE,
-  );
-
-  return system_settings_form($form); // this will also save
 }
 
 // Define templates
@@ -118,19 +71,16 @@ function icucommittees_theme() {
 /* Non-scaffold code is below */
 
 // callback for page
-
-
-
 function icucommittees_file($fileID) {
 
-  $db = @mssql_connect(variable_get('icucommittees_hostname'), variable_get('icucommittees_username'), variable_get('icucommittees_password'));
+  $db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
   if(!$db) {
 
     drupal_not_found(); // database down
     return;
   }
 
-  mssql_select_db(variable_get('icucommittees_database'));
+  mssql_select_db(variable_get('icuerpol_database'));
 
   // Avoid truncation
   mssql_query ( 'SET TEXTSIZE 2147483647', $db);
@@ -158,12 +108,12 @@ function icucommittees_file($fileID) {
 }
 
 function icucommittees(){
-	$db = @mssql_connect(variable_get('icucommittees_hostname'), variable_get('icucommittees_username'), variable_get('icucommittees_password'));
+	$db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
 	if(!$db) {
       		drupal_not_found(); // database down
         	return;
         }
-    mssql_select_db(variable_get('icucommittees_database'));
+    mssql_select_db(variable_get('icuerpol_database'));
 	$result = mssql_query("SELECT DISTINCT Years.YearDesc, Years.YearStart FROM CommitteeMeetings INNER JOIN Years ON Years.YearID = CommitteeMeetings.YearID ORDER BY Years.YearStart, Years.YearDesc ASC");
 	$numresult = mssql_num_rows($result);
 	$row1 = array();
@@ -179,12 +129,12 @@ function icucommittees(){
 }
 
 function icucommittees_year($year){
-	$db = @mssql_connect(variable_get('icucommittees_hostname'), variable_get('icucommittees_username'), variable_get('icucommittees_password'));
+	$db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
 	if(!$db) {
       		drupal_not_found(); // database down
         	return;
         }
-    mssql_select_db(variable_get('icucommittees_database'));
+    mssql_select_db(variable_get('icuerpol_database'));
 	$result = mssql_query("SELECT DISTINCT Years.YearDesc, Years.YearStart FROM CommitteeMeetings INNER JOIN Years ON Years.YearID = CommitteeMeetings.YearID ORDER BY Years.YearStart, Years.YearDesc ASC");
 	$numresult = mssql_num_rows($result);
 	$row1 = array();
@@ -214,12 +164,12 @@ while ($row = mssql_fetch_array($case1)) {
 }
 
 function icucommittees_year_board($year, $board){
-	$db = @mssql_connect(variable_get('icucommittees_hostname'), variable_get('icucommittees_username'), variable_get('icucommittees_password'));
+	$db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
 	if(!$db) {
       		drupal_not_found(); // database down
         	return;
         }
-    mssql_select_db(variable_get('icucommittees_database'));
+    mssql_select_db(variable_get('icuerpol_database'));
 	$result = mssql_query("SELECT DISTINCT Years.YearDesc, Years.YearStart FROM CommitteeMeetings INNER JOIN Years ON Years.YearID = CommitteeMeetings.YearID ORDER BY Years.YearStart, Years.YearDesc ASC");
 	$numresult = mssql_num_rows($result);
 	$row1 = array();
@@ -261,12 +211,12 @@ while ($row = mssql_fetch_array($case1)) {
 
 
 function icucommittees_year_board_meeting($year, $board, $meeting){
-	$db = @mssql_connect(variable_get('icucommittees_hostname'), variable_get('icucommittees_username'), variable_get('icucommittees_password'));
+	$db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
 	if(!$db) {
       		drupal_not_found(); // database down
         	return;
         }
-    mssql_select_db(variable_get('icucommittees_database'));
+    mssql_select_db(variable_get('icuerpol_database'));
 	$result = mssql_query("SELECT DISTINCT Years.YearDesc, Years.YearStart FROM CommitteeMeetings INNER JOIN Years ON Years.YearID = CommitteeMeetings.YearID ORDER BY Years.YearStart, Years.YearDesc ASC");
 	$numresult = mssql_num_rows($result);
 	$row1 = array();

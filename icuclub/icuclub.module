@@ -58,37 +58,6 @@ function icuclub_menu() {
 function icuclub_admin() {
   $form = array();
 
-  $form['icuclub_hostname'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Database hostname'),
-    '#default_value' => variable_get('icuclub_hostname'),
-    '#description' => t("Host for the database containing the eActivities tables. If you need to specify an instance, use the port, not \instancename"),
-    '#required' => TRUE,
-  );
-
-  $form['icuclub_username'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Database username'),
-    '#default_value' => variable_get('icuclub_username'),
-    '#description' => t("Username for the database, must have access to the CurrClubHealth, PeopleClubMemberships, PeopleDetails, PeoplePositions, and PreviousProfiles views (and maybe more, Philip needs to update this later)"),
-    '#required' => TRUE,
-  );
-
-  $form['icuclub_password'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Database password'),
-    '#default_value' => variable_get('icuclub_password'),
-    '#required' => TRUE,
-  );
-
-  $form['icuclub_database'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Database name'),
-    '#default_value' => variable_get('icuclub_database'),
-    '#description' => t("Database name, containing the above views"),
-    '#required' => TRUE,
-  );
-
   $form['icuclub_apikey'] = array(
     '#type' => 'textfield',
     '#title' => t('API Key'),
@@ -176,12 +145,12 @@ function icuclub_block_view($delta = '') {
 // Search hook: will find club pages
 function icuclub_search_execute($keys = NULL, $conditions = NULL) {
   // Search club names and descriptions for the query and output values, luckily we can do this in one query so its nice and nippy
-  $db = @mssql_connect(variable_get('icuclub_hostname'), variable_get('icuclub_username'), variable_get('icuclub_password'));
+  $db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
   if(!$db) {
     return; // db down
   }
 
-  mssql_select_db(variable_get('icuclub_database'));
+  mssql_select_db(variable_get('icuerpol_database'));
 
   // Avoid truncation
   mssql_query ( 'SET TEXTSIZE 2147483647', $db);
@@ -301,13 +270,13 @@ function icuclub_club_image($centre) {
   // See if we have got a cached copy of the image, if we do, no point checking NewERPOL as this is *VERY* time consuming (loading from the drupal cache seems a LOT faster)
   if(!cache_get('icuclub_cache_image_'.$centre)) {
     // Get the club name, status and profile by centre
-    $db = @mssql_connect(variable_get('icuclub_hostname'), variable_get('icuclub_username'), variable_get('icuclub_password'));
+    $db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
     if(!$db) {
       drupal_not_found(); // database down
       return;
     }
   
-    mssql_select_db(variable_get('icuclub_database'));
+    mssql_select_db(variable_get('icuerpol_database'));
   
     // Avoid truncation
     mssql_query ( 'SET TEXTSIZE 2147483647', $db);
@@ -382,13 +351,13 @@ function icuclub_club($centre) {
   }
 
   // Connect to database before cache as we still need membership counts from NewERPOL
-  $db = @mssql_connect(variable_get('icuclub_hostname'), variable_get('icuclub_username'), variable_get('icuclub_password'));
+  $db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
   if(!$db) {
     drupal_not_found(); // database down
     return;
   }
 
-  mssql_select_db(variable_get('icuclub_database'));
+  mssql_select_db(variable_get('icuerpol_database'));
 
   // Avoid truncation
   mssql_query ( 'SET TEXTSIZE 2147483647', $db);
@@ -625,13 +594,13 @@ SELECT COUNT(*) AS num FROM [PeopleClubMemberships]WHERE [YearStart] = '".$curr
 // Membership block - find clubs the current user is a member of
 function block_icuclub_membership($delta) {
   global $user;
-  $db = @mssql_connect(variable_get('icuclub_hostname'), variable_get('icuclub_username'), variable_get('icuclub_password'));
+  $db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
   if(!$db) {
     $output = theme("icuclub_block_memberships", array('clubs' => array()));
     return $output;
   }
 
-  mssql_select_db(variable_get('icuclub_database'));
+  mssql_select_db(variable_get('icuerpol_database'));
 
   // Find CID
   $sql = "
@@ -723,13 +692,13 @@ function block_icuclub_atoz($delta) {
 // Generate the A-Z cache
 function icuclub_genatoz() {
   // Get the club name, centre, and category
-  $db = @mssql_connect(variable_get('icuclub_hostname'), variable_get('icuclub_username'), variable_get('icuclub_password'));
+  $db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
   if(!$db) {
     // database down
     return;
   }
 
-  mssql_select_db(variable_get('icuclub_database'));
+  mssql_select_db(variable_get('icuerpol_database'));
 
   // First get profile types
   $sql = "

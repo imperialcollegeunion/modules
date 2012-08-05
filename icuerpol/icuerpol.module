@@ -1,0 +1,61 @@
+<?php
+
+/**
+ * @file
+ * Module file for icuerpol_module.
+ */
+
+function icuerpol_menu() {
+  $items['admin/config/system/icuerpol'] = array( // This positions it in configuration -> system
+	'title' => t('NewERPOL connection settings'), // Page title, also shown as menu title
+    'description' => t('Set the username, password, host, and database name for the eActivities database'),
+	'page callback' => 'drupal_get_form', // Signifies a form page
+	'page arguments' => array('icuerpol_admin'), // Form is here
+    'type' => MENU_NORMAL_ITEM, // Do show menu item
+	'access arguments' => array('access administration pages'), // Admins only
+  );
+
+  return $items;
+}
+
+// Admin page
+function icuerpol_admin() {
+  $form = array();
+
+  $form['icuerpol_hostname'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Database hostname'),
+    '#default_value' => variable_get('icuerpol_hostname'),
+    '#description' => t("Host for the database containing the eActivities tables. If you need to specify an instance, use the port, not \instancename"),
+    '#required' => TRUE,
+  );
+
+  $form['icuerpol_username'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Database username'),
+    '#default_value' => variable_get('icuerpol_username'),
+    '#description' => t("Username for the database, see module source for the views/tables needed."),
+    '#required' => TRUE,
+  );
+
+  $form['icuerpol_password'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Database password'),
+    '#default_value' => variable_get('icuerpol_password'),
+    '#required' => TRUE,
+  );
+
+  $form['icuerpol_database'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Database name'),
+    '#default_value' => variable_get('icuerpol_database'),
+    '#description' => t("Database name, containing the above views"),
+    '#required' => TRUE,
+  );
+
+  return system_settings_form($form); // this will also save
+}
+
+/**
+ * @} End of "defgroup icuerpol".
+ */
