@@ -1,0 +1,11 @@
+name = ICU Committees
+description = A module generating urls at /committees. Accessing the page will display details pulled in from NewERPOL.
+package = Imperial College Union
+core = 7.x
+files[] = icucommittees.module
+files[] = icucommittees.tpl.php
+files[] = icucommittees_year.tpl.php
+
+version = "7.x-1.0"
+core = "7.x"
+configure = admin/config/system/icucommittees
