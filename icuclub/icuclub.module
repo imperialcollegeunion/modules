@@ -239,6 +239,12 @@ function icuclub_atoz() {
   if(!cache_get('icuclub_cache_atoz')) {
     // If we dont have a cache'd set, generate cache
     icuclub_genatoz();
+
+    // If we don't have an object here, database is down on a cache refresh, cry
+    if(!is_object(cache_get('icuclub_cache_atoz'))) {
+      drupal_not_found();
+      return;
+    }
   }
 
   // No matter what happened before, we should have a cache now
@@ -652,6 +658,11 @@ function block_icuclub_atoz($delta) {
   if(!cache_get('icuclub_cache_atoz')) {
     // If we dont have a cache'd set, generate cache
     icuclub_genatoz();
+
+    // If we don't have a cached thing, db down, no block
+    if(!is_object(cache_get('icuclub_cache_atoz'))) {
+      return; // will hide block
+    }
   }
 
   // No matter what happened before, we should have a cache now
