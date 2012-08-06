@@ -56,6 +56,14 @@ function icuerpol_admin() {
   return system_settings_form($form); // this will also save
 }
 
+// escape sql stuff
+// FIXME: is this sufficient??
+function mssql_escape($data) {
+    if(is_numeric($data))
+        return $data;
+    return str_replace("'", "''", $data);
+}
+
 /**
  * @} End of "defgroup icuerpol".
  */

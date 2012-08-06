@@ -195,14 +195,6 @@ function icuclub_search_info() {
   );
 }
 
-// FIXME: move
-// FIXME: is this sufficient??
-function mssql_escape($data) {
-    if(is_numeric($data))
-        return $data;
-    return str_replace("'", "''", $data);
-}
-
 /* Non-scaffold code is below */
 // callback to clean atoz cache
 function icuclub_clean_atoz($key) {
@@ -600,6 +592,11 @@ SELECT COUNT(*) AS num FROM [PeopleClubMemberships]WHERE [YearStart] = '".$curr
 // Membership block - find clubs the current user is a member of
 function block_icuclub_membership($delta) {
   global $user;
+
+  if(!isset($user->name)) {
+    return; // not logged in
+  }
+
   $db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
   if(!$db) {
     $output = theme("icuclub_block_memberships", array('clubs' => array()));
