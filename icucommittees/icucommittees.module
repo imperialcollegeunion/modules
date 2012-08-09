@@ -5,38 +5,119 @@
  * Module file for icucommittees_module.
  */
 
-// Registered URLs for this club
+// Create menu
+function icucommittees_install () {
+    $menu = array(
+        'menu_name' => 'menu-committees',
+        'title' => 'Committees',
+    );
+
+    menu_save($menu);
+    cache_clear_all('*', 'cache_menu', TRUE);
+
+    drupal_set_message($message = t('The module was successfully installed. '), $type = 'status');
+}
+
+// Regenerate menu every day - pulls in latest details from NewERPOL for committees
+// NOTE: we sadly cannot do this just for committee related menus
+function icucommittees_cron() {
+  menu_rebuild();
+}
+
+// Preexecuted queries
+function icucommittees_prequeries() {
+  global $ic_years;
+
+  // Do a few useful queries here to save time later - plus we cut down on the number of queries
+  if(!erpol_connect()) {
+    return;
+  }
+
+  // Get all years
+	$result = mssql_query("SELECT DISTINCT Years.YearDesc, Years.YearStart, Years.YearID FROM CommitteeMeetings INNER JOIN Years ON Years.YearID = CommitteeMeetings.YearID ORDER BY Years.YearStart, Years.YearDesc ASC");
+
+  if($result === TRUE || $result === FALSE) {
+    // No years (unlikely)
+    return;
+  }
+
+  $ic_years = array();
+  while($res = mssql_fetch_object($result)) {
+    $ic_years[$res->YearID] = array('desc' => $res->YearDesc, 'committees' => array());
+  }
+
+  // Add committees to years
+  $result = mssql_query("SELECT DISTINCT CommitteeMeetings.CommitteeID, Committees.CommitteeName, CommitteeMeetings.YearID, Committees.CommitteeTier FROM CommitteeMeetings INNER JOIN Committees ON CommitteeMeetings.CommitteeID = Committees.ID");
+
+  if($result === TRUE || $result === FALSE) {
+    // No years (unlikely)
+    return;
+  }
+
+  while($res = mssql_fetch_object($result)) {
+    $ic_years[$res->YearID]['committees'][$res->CommitteeID] = array('name' => $res->CommitteeName, 'tier' => $res->CommitteeTier, 'meetings' => array());
+  }
+
+  // Add meetings to committees
+  $result = mssql_query("SELECT * FROM CommitteeMeetings");
+
+  if($result === TRUE || $result === FALSE) {
+    // No meetings (unlikely)
+    return;
+  }
+
+  while($res = mssql_fetch_object($result)) {
+    $ic_years[$res->YearID]['committees'][$res->CommitteeID]['meetings'][$res->ID] = array('date' => $res->MeetingDate, 'room' => $res->MeetingRoom, 'cancelled' => $res->MeetingCancelled);
+  }
+
+  mssql_close();
+}
+
+// Registered URLs for this module
 function icucommittees_menu() {
+  global $ic_years;
+  icucommittees_prequeries();
 
   $items['committees'] = array(
-      'page callback' => 'icucommittees', // Page function
-      'page arguments' => array(), // No parameter (starting at 0)
-      'type' => MENU_CALLBACK, // Do not show menu item
-      'access callback' => TRUE, // Page always accessible
-  );
-                    
-  $items['committees/%'] = array(
-    'page callback' => 'icucommittees_year', // Page function
-    'page arguments' => array(1), // The year is the 2nd parameter (starting at 0)
-    'type' => MENU_CALLBACK, // Do not show menu item
+    'page callback' => 'icucommittees', // Page function
+    'page arguments' => array(), // No parameter (starting at 0)
     'access callback' => TRUE, // Page always accessible
+    'title' => 'Committees',
   );
 
-  $items['committees/%/%'] = array(
-    'page callback' => 'icucommittees_year_board', // Page function
-    'page arguments' => array(1,2), // The year is the 2nd parameter and board is 3rd (starting at 0)
-    'type' => MENU_CALLBACK, // Do not show menu item
-    'access callback' => TRUE, // Page always accessible
-  );
-
-  $items['committees/%/%/%'] = array(
-      'page callback' => 'icucommittees_year_board_meeting', // Page function
-      'page arguments' => array(1,2,3), // The centre is the 2nd parameter (starting at 0)
-      'type' => MENU_CALLBACK, // Do not show menu item
+  // Add each committee year
+  foreach ($ic_years as $yearid => $year) {
+    $items['committees/'.$year['desc']] = array(
+      'page callback' => 'icucommittees_year', // Page function
+      'page arguments' => array(1), // The year is the 2nd parameter (starting at 0)
       'access callback' => TRUE, // Page always accessible
-   );
+      'title' => '20'.$year['desc'],
+      'menu_name' => 'menu-committees', // Inject into committees menu
+    );
 
-$items['committees/%/%/%/%'] = array(
+    foreach ($year['committees'] as $cid => $data) {
+      $items['committees/'.$year['desc'].'/'.str_replace(' ', '_', $data['name'])] = array(
+        'page callback' => 'icucommittees_year_board', // Page function
+        'page arguments' => array(1,2), // The year is the 2nd parameter (starting at 0)
+        'access callback' => TRUE, // Page always accessible
+        'title' => $data['name'],
+        'menu_name' => 'menu-committees', // Inject into committees menu
+      );
+
+      foreach ($data['meetings'] as $mid => $mdata) {
+        $items['committees/'.$year['desc'].'/'.str_replace(' ', '_', $data['name']).'/'.$mid] = array(
+          'page callback' => 'icucommittees_year_board_meeting', // Page function
+          'page arguments' => array(1,2,3), // The year is the 2nd parameter (starting at 0)
+          'access callback' => TRUE, // Page always accessible
+          'title' => $mdata['date'],
+          'menu_name' => 'menu-committees', // Inject into committees menu
+        );
+      }
+    }
+  }
+
+  // This is not something that needs to be done in nice menus so don't bother doing crazy stuff with this
+  $items['committees/%/%/%/%'] = array(
     'page callback' => 'icucommittees_file', // Page function
     'page arguments' => array(4), // The file is the 5th parameter (starting at 0)
     'type' => MENU_CALLBACK, // Do not show menu item
@@ -48,216 +129,242 @@ $items['committees/%/%/%/%'] = array(
 
 // Define templates
 function icucommittees_theme() {
-    return array(
-    
-     'icucommittees' => array( // name of theme
-                 'template' => 'icucommittees' // name of template to load, .tpl.php will be added
-                         ),
-                         
-     'icucommittees_year' => array( // name of theme
-            'template' => 'icucommittees_year' // name of template to load, .tpl.php will be added
-        ),
-        
-     'icucommittees_year_board' => array( // name of theme
-         'template' => 'icucommittees_year_board' // name of template to load, .tpl.php will be added
-        ),
-
-     'icucommittees_year_board_meeting' => array( // name of theme
-                 'template' => 'icucommittees_year_board_meeting' // name of template to load, .tpl.php will be added
-                          ),
-    );
+  return array (
+    'icucommittees_year' => array( // name of theme
+      'template' => 'icucommittees_year' // name of template to load, .tpl.php will be added
+    ),
+    'icucommittees_year_board' => array( // name of theme
+      'template' => 'icucommittees_year_board' // name of template to load, .tpl.php will be added
+    ),
+    'icucommittees_year_board_meeting' => array( // name of theme
+      'template' => 'icucommittees_year_board_meeting' // name of template to load, .tpl.php will be added
+    ),
+  );
 }
 
 /* Non-scaffold code is below */
 
 // callback for page
 function icucommittees_file($fileID) {
-
-  $db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
-  if(!$db) {
-
-    drupal_not_found(); // database down
+  if(!erpol_connect()) {
     return;
   }
-
-  mssql_select_db(variable_get('icuerpol_database'));
-
-  // Avoid truncation
-  mssql_query ( 'SET TEXTSIZE 2147483647', $db);
-  ini_set ( 'mssql.textlimit', '2147483647');
-  ini_set ( 'mssql.textsize', '2147483647');
 
   // Image
 	$result = mssql_query("SELECT * FROM CommitteeMeetingPapers WHERE ID = '$fileID'");
 	if(mssql_num_rows($result) != '1'){
-	drupal_not_found(); //Stops people being able to download whole UpFiles table!
+  	drupal_not_found(); //Stops people being able to download whole UpFiles table!
 	}
+
 	$fileID = mssql_result($result, 0, "FileID");
+
   $result = mssql_query("SELECT * FROM UpFiles WHERE ID = '$fileID'");
+
   if(mssql_num_rows($result) != '1') {
      drupal_not_found();
+     return;
+  }
+
+  $res = mssql_fetch_object($result);
+
+  if(!is_object($res)) {
+    drupal_not_found();
+    return; 
+  }
+
+  header('Content-Type: '.$res->FileType);
+  echo $res->UpFile;
+
+  return;
+}
+
+// Redirect to current year 
+function icucommittees() {
+  if(!erpol_connect()) {
+    drupal_not_found();
+    return;
+  }
+
+	$result = mssql_query("SELECT TOP 1 Years.YearDesc FROM Years WHERE Years.CurrentYear = 1 ORDER BY Years.YearStart DESC");
+
+  if($result === TRUE || $result === FALSE) {
+    drupal_not_found(); // No years (unlikely)
+    return;
   }
 
   $res = mssql_fetch_object($result);
   if(!is_object($res)) {
-     drupal_not_found();
+    drupal_not_found(); // Year does not exist
+    return;
   }
-  header('Content-Type: '.$res->FileType);
-  echo $res->UpFile;
+
+  drupal_goto('committees/'.$res->YearDesc);
   return;
 }
 
-function icucommittees(){
-	$db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
-	if(!$db) {
-      		drupal_not_found(); // database down
-        	return;
-        }
-    mssql_select_db(variable_get('icuerpol_database'));
-	$result = mssql_query("SELECT DISTINCT Years.YearDesc, Years.YearStart FROM CommitteeMeetings INNER JOIN Years ON Years.YearID = CommitteeMeetings.YearID ORDER BY Years.YearStart, Years.YearDesc ASC");
-	$numresult = mssql_num_rows($result);
-	$row1 = array();
-	$k=0;	
-	while($row = mssql_fetch_assoc($result)){
-		$row1[$k] = $row['YearDesc'];
-	$k++;	
-	}
-	mssql_close($db);
-    drupal_set_title(t('Committees'));
-	$output = theme("icucommittees", array('row1' => $row1));
-	return $output;
-}
+function icucommittees_year($year) {
+  icucommittees_prequeries(); // Generate a number of useful things we may need
 
-function icucommittees_year($year){
-	$db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
-	if(!$db) {
-      		drupal_not_found(); // database down
-        	return;
-        }
-    mssql_select_db(variable_get('icuerpol_database'));
-	$result = mssql_query("SELECT DISTINCT Years.YearDesc, Years.YearStart FROM CommitteeMeetings INNER JOIN Years ON Years.YearID = CommitteeMeetings.YearID ORDER BY Years.YearStart, Years.YearDesc ASC");
-	$numresult = mssql_num_rows($result);
-	$row1 = array();
-	$k=0;	
-	while($row = mssql_fetch_assoc($result)){
-		$row1[$k] = $row['YearDesc'];
-	$k++;	
-	}
+  global $ic_years;
+  foreach($ic_years as $yearid => $data) {
+    // If we are on the right year
+    if($data['desc'] == $year) {
+      $yearID = $yearid;
+    }
+  }
 
-$yearIDquery = mssql_query("SELECT * FROM Years WHERE YearDesc = '$year'");
-$yearID = mssql_result($yearIDquery, 0, "YearID");
-	
-for($j=0;$j<=3;$j++){
-		$case1 = mssql_query("SELECT DISTINCT CommitteeMeetings.CommitteeID FROM CommitteeMeetings INNER JOIN Committees ON CommitteeMeetings.CommitteeID = Committees.ID WHERE CommitteeMeetings.YearID = '$yearID' AND Committees.CommitteeTier = '$j'");
+  // This year is not valid
+  if(!isset($yearID)) {
+    drupal_not_found();
+    return;
+  }
+
+  $committeedata = $ic_years[$yearID]['committees'];
+
+	$committees = array();
+  for($j = 0; $j <= 3; $j++) {
+    // Committees are organized by a tier, so render on a tier basis
 		$k = 0;
-while ($row = mssql_fetch_array($case1)) {
-			$cough = $row['CommitteeID'];
-			$case2 = mssql_query("SELECT * FROM Committees WHERE ID = '$cough'");
-			$result1[$j][$k] = mssql_result($case2, 0, "CommitteeName");
-			$k++;
-           	}
+    $committees[$j] = array();
+
+    foreach($committeedata as $cid => $data) {
+      if($data['tier'] == $j) {
+        $committees[$j][$k] = $data['name'];
+        $k++;
+      }
+    }
 	}
-	mssql_close($db);
-    drupal_set_title(t('Committees '.$year));
-	$output = theme("icucommittees_year", array('row1' => $row1, 'year' => $year, 'result1' => $result1));
-	return $output;
+
+  drupal_set_title(t('Committees 20'.$year));
+  $output = theme("icucommittees_year", array('allyears' => $ic_years, 'year' => $year, 'committees' => $committees));
+  return $output;
 }
 
 function icucommittees_year_board($year, $board){
-	$db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
-	if(!$db) {
-      		drupal_not_found(); // database down
-        	return;
-        }
-    mssql_select_db(variable_get('icuerpol_database'));
-	$result = mssql_query("SELECT DISTINCT Years.YearDesc, Years.YearStart FROM CommitteeMeetings INNER JOIN Years ON Years.YearID = CommitteeMeetings.YearID ORDER BY Years.YearStart, Years.YearDesc ASC");
-	$numresult = mssql_num_rows($result);
-	$row1 = array();
-	$k=0;	
-	while($row = mssql_fetch_assoc($result)){
-		$row1[$k] = $row['YearDesc'];
-	$k++;	
-	}
+  icucommittees_prequeries(); // Generate a number of useful things we may need
 
-$board2 = str_replace("_"," ",$board);
+  global $ic_years;
+  foreach($ic_years as $yearid => $data) {
+    // If we are on the right year
+    if($data['desc'] == $year) {
+      $yearID = $yearid;
+    }
+  }
 
-$yearIDquery = mssql_query("SELECT * FROM Years WHERE YearDesc = '$year'");
-$yearID = mssql_result($yearIDquery, 0, "YearID");
+  $committeedata = $ic_years[$yearID]['committees'];
 
-$CommitteeIDquery = mssql_query("SELECT * FROM Committees WHERE CommitteeName = '$board2'");
+  // Committees for this year
+	$k = 0;
+  $committees = array();
 
-$CommitteeID = mssql_result($CommitteeIDquery, 0, "ID");
+  foreach($committeedata as $cid => $data) {
+    $committees[$k] = $data['name'];
+      
+    if(str_replace(' ', '_', $data['name']) == $board) {
+      $committeeID = $cid;
+    }
+    $k++;
+  }
+ 
+  // This committee is not valid
+  if(!isset($committeeID)) {
+    drupal_not_found();
+    return;
+  }
 	
-		$case1 = mssql_query("SELECT * FROM CommitteeMeetings WHERE YearID = '$yearID' AND CommitteeID = '$CommitteeID'");
-		$request = mssql_num_rows($case1);
-		$k = 0;
-while ($row = mssql_fetch_array($case1)) {
-			$result1[$k] = $row['MeetingDate'];
-			$result2[$k] = $row['MeetingRoom'];
-			$result3[$k] = $row['MeetingCancelled'];
-			$result4[$k] = $row['ID'];
-			$k++;
-           	}
-	mssql_close($db);
-    drupal_set_title(t(str_replace('_', ' ', $board)));
+  // This year's meetings for this board
+  $meetings = $ic_years[$yearID]['committees'][$committeeID]['meetings'];
 
-	$output = theme("icucommittees_year_board", array('row1' => $row1, 'year' => $year, 'request' => $request, 'result1' => $result1, 'result2' => $result2, 'result3' => $result3, 'result4' => $result4, 'board' => $board));
+  drupal_set_title(t(str_replace('_', ' ', $board)).' 20'.$year);
+
+  $output = theme("icucommittees_year_board", array('allyears' => $ic_years, 'year' => $year, 'committees' => $committees, 'committee' => $board, 'meetings' => $meetings));
 	return $output;
 
 }
 
+function icucommittees_year_board_meeting($year, $board, $meeting) {
+  icucommittees_prequeries(); // Generate a number of useful things we may need
 
+  global $ic_years;
+  foreach($ic_years as $yearid => $data) {
+    // If we are on the right year
+    if($data['desc'] == $year) {
+      $yearID = $yearid;
+    }
+  }
 
+  // This year is not valid
+  if(!isset($yearID)) {
+    drupal_not_found();
+    return;
+  }
 
+  $committeedata = $ic_years[$yearID]['committees'];
 
-function icucommittees_year_board_meeting($year, $board, $meeting){
-	$db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
-	if(!$db) {
-      		drupal_not_found(); // database down
-        	return;
-        }
-    mssql_select_db(variable_get('icuerpol_database'));
-	$result = mssql_query("SELECT DISTINCT Years.YearDesc, Years.YearStart FROM CommitteeMeetings INNER JOIN Years ON Years.YearID = CommitteeMeetings.YearID ORDER BY Years.YearStart, Years.YearDesc ASC");
-	$numresult = mssql_num_rows($result);
-	$row1 = array();
-	$k=0;	
-	while($row = mssql_fetch_assoc($result)){
-		$row1[$k] = $row['YearDesc'];
-	$k++;	
-	}
+  // Committees for this year
+	$k = 0;
+  $committees = array();
 
-$CommitteeIDquery = mssql_query("SELECT * FROM CommitteeMeetings WHERE ID = '$meeting'");
-$MeetingDate = mssql_result($CommitteeIDquery, 0, "MeetingDate");
-$MeetingRoom = mssql_result($CommitteeIDquery, 0, "MeetingRoom");
-$MeetingCancelled = mssql_result($CommitteeIDquery, 0, "MeetingCancelled");
+  foreach($committeedata as $cid => $data) {
+    $committees[$k] = $data['name'];
+      
+    if(str_replace(' ', '_', $data['name']) == $board) {
+      $committeeID = $cid;
+    }
+    $k++;
+  }
 
-$case1 = mssql_query("SELECT * FROM CommitteeMeetingPapers WHERE MeetingID = '$meeting' ORDER BY SortOrder ASC");
-		$request = mssql_num_rows($case1);
-		$result1 = array();
-$result2 = array();
-$result3 = array();
-$result4 = array();
-if($request != 0){
-$k = 0;
-while ($row = mssql_fetch_array($case1)) {
-			$result1[$k] = $row['ID'];
-			$result2[$k] = $row['PaperTitle'];
-			$result3[$k] = $row['Agenda'];
-			$result4[$k] = $row['ChangedWhen'];
-			$k++;
-           	}
-}
+  // This committee is not valid
+  if(!isset($committeeID)) {
+    drupal_not_found();
+    return;
+  }
+	
+  // This year's meetings for this board
+  $meetings = $ic_years[$yearID]['committees'][$committeeID]['meetings'];
 
-	mssql_close($db);
-    drupal_set_title(t(str_replace('_', ' ', $board)));
-	$output = theme("icucommittees_year_board_meeting", array('MeetingDate' => $MeetingDate, 'MeetingRoom' => $MeetingRoom, 'MeetingCancelled' => $MeetingCancelled, 'row1' => $row1, 'year' => $year, 'request' => $request, 'result1' => $result1, 'result2' => $result2, 'result3' => $result3, 'result4' => $result4, 'board' => $board));
+  // This meeting is not valid
+  if(!array_key_exists($meeting, $ic_years[$yearID]['committees'][$committeeID]['meetings'])) {
+    drupal_not_found();
+    return;
+  }
+
+  // This meeting
+  $this_meeting = $ic_years[$yearID]['committees'][$committeeID]['meetings'][$meeting];
+
+  $escaped_meeting = mssql_escape($meeting);
+
+  if(!erpol_connect()) {
+    drupal_not_found();
+    return;
+  }
+
+  $case1 = mssql_query("SELECT * FROM CommitteeMeetingPapers WHERE MeetingID = '$escaped_meeting' ORDER BY SortOrder ASC");
+	$request = mssql_num_rows($case1);
+	$result1 = array();
+  $result2 = array();
+  $result3 = array();
+  $result4 = array();
+
+  if($request != 0) {
+    $k = 0;
+    while ($row = mssql_fetch_array($case1)) {
+      $result1[$k] = $row['ID'];
+      $result2[$k] = $row['PaperTitle'];
+      $result3[$k] = $row['Agenda'];
+      $result4[$k] = $row['ChangedWhen'];
+      $k++;
+    }
+  }
+
+	mssql_close();
+
+  drupal_set_title(t(str_replace('_', ' ', $board)).' - '.$this_meeting['date']);
+
+  $output = theme("icucommittees_year_board_meeting", array('allyears' => $ic_years, 'year' => $year, 'committees' => $committees, 'committee' => $board, 'meetings' => $meetings, 'meeting' => $meeting, 'this_meeting' => $this_meeting, 'request' => $request, 'result1' => $result1, 'result2' => $result2, 'result3' => $result3, 'result4' => $result4));
+
 	return $output;
-
 }
-
-
-
-
 
 /**
  * @} End of "defgroup icuclub".

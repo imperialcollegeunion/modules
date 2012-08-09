@@ -321,14 +321,14 @@ SELECT TOP 1 [UpFiles].[UpFile]    ,[UpFiles].[FileType]
   
     $result = mssql_query($sql);
     if($result === TRUE || $result === FALSE) {
-       drupal_not_found(); // No society
-       return;
+      drupal_not_found(); // No society
+      return;
     }
   
     $res = mssql_fetch_object($result);
     if(!is_object($res)) {
-       drupal_not_found(); // No society
-       return;
+      drupal_not_found(); // No society
+      return;
     }
   
     cache_set('icuclub_cache_image_'.$centre, $res, NULL, strtotime($res->YearEnd)); // Expire it when we roll over year

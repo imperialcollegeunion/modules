@@ -1,27 +1,33 @@
 <!-- icuccommittees_year_board template -->
 <div class="container-inline">
  <?php
+  // Year Tabs
   echo "<div class=\"tabs\"><ul class=\"tabs primary yearbar\">";
- foreach($row1 as $years){
-    if($years == $year): $selected = " class=\"active\""; else: $selected = ""; endif;
-    echo "<li".$selected."><a href=/presidents/drupal/committees/";
-    echo $years;
-    echo "/";
-    echo $board;
-    echo ">20";
-    echo $years;
-    echo "</a>
-    </li>";
-    }
-    echo "</ul></div>";
+  
+  foreach($allyears as $year_tab) {
+    if($year_tab['desc'] == $year): $selected = " class=\"active\""; else: $selected = ""; endif;
+    echo "<li".$selected."><a href=\"".url('committees/'.$year_tab['desc']).'">20';
+    echo $year_tab['desc'];
+    echo "</a></li>";
+  }
+  echo "</ul></div>";
+
+  // Board Tabs
+  echo "<div class=\"tabs\"><ul class=\"tabs primary boardbar\">";
+  
+  foreach($committees as $committee_tab) {
+    if(str_replace(' ', '_', $committee_tab) == $committee): $selected = " class=\"active\""; else: $selected = ""; endif;
+    echo "<li".$selected."><a href=\"".url('committees/'.$year.'/'.str_replace(" ","_",$committee_tab)).'">';
+    echo $committee_tab;
+    echo "</a></li>";
+  }
+  echo "</ul></div>";
 
   echo "<ul>";
-  for($k=0;$k<$request;$k++){
-
-         echo '<li class="leaf"><a href=/presidents/drupal/committees/'.$year.'/'.$board.'/'.$result4[$k].'>'.$result1[$k].', '.$result2[$k].'</a>';
-	if($result3[$k] != 'False'){ echo ' - CANCELLED'; }	
-echo '</li>';
-
+  foreach($meetings as $id => $meeting) {
+    echo '<li class="leaf"><a href=/presidents/drupal/committees/'.$year.'/'.$committee.'/'.$id.'>'.$meeting['date'].', '.$meeting['room'].'</a>';
+    if($meeting['cancelled'] == TRUE){ echo ' - CANCELLED'; }	
+    echo '</li>';
   }
   echo "</ul>";
 
