@@ -61,7 +61,7 @@ function icuerpol_admin() {
 function mssql_escape($data) {
     if(is_numeric($data))
         return $data;
-    return str_replace("'", "''", $data);
+    return str_replace("'", "''", trim($data));
 }
 
 /**
