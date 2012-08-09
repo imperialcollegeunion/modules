@@ -57,11 +57,27 @@ function icuerpol_admin() {
 }
 
 // escape sql stuff
-// FIXME: is this sufficient??
 function mssql_escape($data) {
     if(is_numeric($data))
         return $data;
     return str_replace("'", "''", trim($data));
+}
+
+// connect ot db, FALSE on failure
+function erpol_connect() {
+  $db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
+  if(!$db) {
+    return FALSE;
+  }
+
+  mssql_select_db(variable_get('icuerpol_database'));
+
+  // Avoid truncation
+  mssql_query ( 'SET TEXTSIZE 2147483647', $db);
+  ini_set ( 'mssql.textlimit', '2147483647');
+  ini_set ( 'mssql.textsize', '2147483647');
+
+  return TRUE;
 }
 
 /**

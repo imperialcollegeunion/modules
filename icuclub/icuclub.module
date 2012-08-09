@@ -105,12 +105,9 @@ function icuclub_gen_memberships() {
     return; // not logged in
   }
 
-  $db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
-  if(!$db) {
+  if(!erpol_connect()) {
     return;
   }
-
-  mssql_select_db(variable_get('icuerpol_database'));
 
   $username = mssql_escape($user->name);
 
@@ -183,17 +180,10 @@ function icuclub_block_view($delta = '') {
 // Search hook: will find club pages
 function icuclub_search_execute($keys = NULL, $conditions = NULL) {
   // Search club names and descriptions for the query and output values, luckily we can do this in one query so its nice and nippy
-  $db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
-  if(!$db) {
+
+  if(!erpol_connect()) {
     return; // db down
   }
-
-  mssql_select_db(variable_get('icuerpol_database'));
-
-  // Avoid truncation
-  mssql_query ( 'SET TEXTSIZE 2147483647', $db);
-  ini_set ( 'mssql.textlimit', '2147483647');
-  ini_set ( 'mssql.textsize', '2147483647');
 
   $query = mssql_escape($keys);
 
@@ -308,19 +298,11 @@ function icuclub_club_image($centre) {
   // See if we have got a cached copy of the image, if we do, no point checking NewERPOL as this is *VERY* time consuming (loading from the drupal cache seems a LOT faster)
   if(!cache_get('icuclub_cache_image_'.$centre)) {
     // Get the club name, status and profile by centre
-    $db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
-    if(!$db) {
-      drupal_not_found(); // database down
-      return;
+    if(!erpol_connect()) {
+      drupal_not_found();
+      return; // db down
     }
-  
-    mssql_select_db(variable_get('icuerpol_database'));
-  
-    // Avoid truncation
-    mssql_query ( 'SET TEXTSIZE 2147483647', $db);
-    ini_set ( 'mssql.textlimit', '2147483647');
-    ini_set ( 'mssql.textsize', '2147483647');
-  
+
     // Get the image in one super query
     $sql = "
 SELECT TOP 1 [UpFiles].[UpFile]    ,[UpFiles].[FileType]
@@ -368,20 +350,12 @@ function icuclub_club($centre) {
   }
 
   // Connect to database before cache as we still need membership counts from NewERPOL
-  $db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
-  if(!$db) {
-    drupal_not_found(); // database down
-    return;
+  if(!erpol_connect()) {
+    drupal_not_found();
+    return; // db down
   }
 
   $centre = mssql_escape($centre);
-
-  mssql_select_db(variable_get('icuerpol_database'));
-
-  // Avoid truncation
-  mssql_query ( 'SET TEXTSIZE 2147483647', $db);
-  ini_set ( 'mssql.textlimit', '2147483647');
-  ini_set ( 'mssql.textsize', '2147483647');
 
   // Everything apart from membership counts can be obtained from the cache, so see if we cached it
   if(!cache_get('icuclub_cache_page_'.$centre)) {
@@ -510,7 +484,7 @@ SELECT COUNT(*) [NumMemberships]	    ,[Years].[YearID]FROM [PeopleClubMembersh
     }
   }
 
-  mssql_close($db);
+  mssql_close();
 
   drupal_set_title($nicetitle);
 
@@ -581,15 +555,11 @@ function block_icuclub_atoz($delta) {
 
 // Generate the A-Z cache
 function icuclub_genatoz() {
-  // Get the club name, centre, and category
-  $db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
-  if(!$db) {
-    // database down
-    return;
+  if(!erpol_connect()) {
+    return; //db down
   }
 
-  mssql_select_db(variable_get('icuerpol_database'));
-
+  // Get the club name, centre, and category
   // Now get all clubs which are active
   $sql = "
 SELECT [OCNames].[OCNameTypeName]
@@ -647,7 +617,7 @@ SELECT [OCNames].[OCNameTypeName]
   // Sort alphabetically
   ksort($societies);
 
-  cache_set('icuclub_cache_page_atoz', $cache, NULL, strtotime($YearStart));
+  cache_set('icuclub_cache_atoz', $societies, "cache", strtotime($YearEnd));
 }
 
 /**
