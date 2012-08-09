@@ -94,6 +94,59 @@ function icuclub_admin() {
   return system_settings_form($form); // this will also save
 }
 
+// Automatic cache cleaning of expired data, mainly to clean our stuff but also cleans generally as a bonus
+function icuclub_init() {
+  // Called near start of exec
+  $data = cache_get('icuclub_year_end');
+  if(is_object($data) && $data->data < date()) {
+    // We have rolled over year, clear
+    cache_clear_all('icuclub_year_end', 'cache');
+    cache_clear_all(null, 'cache');
+
+    // According to the Drupal documentation, setting an expiry date on the cache sets a minimum lifetime, after which the cache will be
+    // clearable using the usual means. Therefore, we need to check to see if the year has rolled over, if so clear all expired entries
+    // in the cache, and delete the rollover year - all pages and the A-to-Z will be reloaded from NewERPOL and the rollover reset.
+  }
+}
+
+// Build list of clubs logged in user is a member of
+function icuclub_gen_memberships() {
+  global $user;
+  global $icuclub_memberships;
+
+  $icuclub_memberships = array();
+
+  if(!user_is_logged_in()) {
+    return; // not logged in
+  }
+
+  $db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
+  if(!$db) {
+    return;
+  }
+
+  mssql_select_db(variable_get('icuerpol_database'));
+
+  $username = mssql_escape($user->name);
+
+  // Find all memberships in the current year
+  $curryear = (int) date('Y', time());
+  $sql = "
+SELECT [CurrClubHealth].[Centre]	    ,[OCNames].[OCNameTypeName]FROM [PeopleClubMemberships]  INNER JOIN [CurrClubHealth] ON [PeopleClubMemberships].[OCDesc] = [CurrClubHealth].[OCDesc]	INNER JOIN [PeopleDetails] ON [PeopleClubMemberships].[CID] = [PeopleDetails].[CID]	INNER JOIN [OCNames] ON [CurrClubHealth].[OCID] = [OCNames].[OCID]	INNER JOIN [Years] ON [PeopleClubMemberships].[YearStart] = [Years].[YearStart]WHERE [PeopleDetails].[Login] = '".$username."'
+	AND [CurrClubHealth].[StatusDesc] = 'Active'  AND [Years].[YearID] = '22'	
+";
+
+  $result = mssql_query($sql);
+  if($result === TRUE || $result === FALSE) {
+    return;
+  }
+
+  $socs = array();
+  while($res = mssql_fetch_object($result)) {
+    $icuclub_memberships[$res->Centre] = $res->OCNameTypeName;
+  }
+}
+
 // Define templates
 function icuclub_theme() {
     return array(
@@ -159,10 +212,11 @@ function icuclub_search_execute($keys = NULL, $conditions = NULL) {
 
   $query = mssql_escape($keys);
 
-$sql ="
-  SELECT [CurrClubHealth].[OCDesc]        ,[CurrClubHealth].[Centre]		    ,[PreviousProfiles2].[YearDesc]        ,CAST ([PreviousProfiles2].[LargeProfile] AS TEXT) [LargeProfile]  FROM [CurrClubHealth]  CROSS APPLY ( SELECT TOP 1 [PreviousProfiles].[YearDesc], [PreviousProfiles].[LargeProfile]                FROM [PreviousProfiles] WHERE [PreviousProfiles].[OCID] = [CurrClubHealth].[OCID]                ORDER BY [PreviousProfiles].[YearDesc] DESC              ) [PreviousProfiles2]    WHERE [CurrClubHealth].[OCDesc] LIKE '%$query%'
-    OR [LargeProfile] LIKE '%$query%'    AND [StatusDesc] = 'Active'
-  ";
+$sql = "
+SELECT [CurrClubHealth].[OCDesc]      ,[CurrClubHealth].[Centre]      ,[PreviousProfiles2].[YearDesc]      ,CAST ([PreviousProfiles2].[LargeProfile] AS TEXT) [LargeProfile]FROM [CurrClubHealth]  CROSS APPLY ( SELECT TOP 1 [PreviousProfiles].[YearDesc], [PreviousProfiles].[LargeProfile]                FROM [PreviousProfiles] WHERE [PreviousProfiles].[OCID] = [CurrClubHealth].[OCID]                ORDER BY [PreviousProfiles].[YearDesc] DESC              ) [PreviousProfiles2]WHERE [CurrClubHealth].[OCDesc] LIKE '%$query%'
+  OR [LargeProfile] LIKE '%$query%'
+  AND [StatusDesc] = 'Active'
+";
 
   if(variable_get('icuclub_filter') != '' && variable_get('icuclub_filter') != NULL) {
     $filters = explode(',', variable_get('icuclub_filter'));
@@ -203,7 +257,7 @@ function icuclub_clean_atoz($key) {
     return 'bad key';
   }
 
-  cache_clear_all('icuclub_cache_atoz'); // For when we create a new club/delete/rename/change club category
+  cache_clear_all('icuclub_cache_atoz', 'cache'); // For when we create a new club/delete/rename/change club category
   return 'ok';
 }
 
@@ -217,8 +271,8 @@ function icuclub_clean_club($key, $centre) {
     return 'bad centre';
   }
 
-  cache_clear_all('icuclub_cache_image_'.$centre); // For when a club profile and/or image changes
-  cache_clear_all('icuclub_cache_page_'.$centre);
+  cache_clear_all('icuclub_cache_image_'.$centre, 'cache'); // For when a club profile and/or image changes
+  cache_clear_all('icuclub_cache_page_'.$centre, 'cache');
   return 'ok';
 }
 
@@ -248,12 +302,11 @@ function icuclub_atoz() {
     return;
   }
 
-  $societies = $cache['societies'];
-  $sections = $cache['sections'];
+  $societies = $cache;
 
   drupal_set_title('Club, Society & Project A to Z');
 
-  $output = theme("icuclub_atoz", array('atozintro' => $intro, 'atozabout' => $about, 'atozclubs' => $societies, 'atozcats' => $sections));
+  $output = theme("icuclub_atoz", array('atozintro' => $intro, 'atozabout' => $about, 'atozclubs' => $societies));
   return $output;
 }
 
@@ -264,6 +317,8 @@ function icuclub_club_image($centre) {
     drupal_not_found();
     return;  // We actually don't get here.
   }
+
+  $centre = mssql_escape($centre);
 
   // See if we have got a cached copy of the image, if we do, no point checking NewERPOL as this is *VERY* time consuming (loading from the drupal cache seems a LOT faster)
   if(!cache_get('icuclub_cache_image_'.$centre)) {
@@ -281,11 +336,10 @@ function icuclub_club_image($centre) {
     ini_set ( 'mssql.textlimit', '2147483647');
     ini_set ( 'mssql.textsize', '2147483647');
   
-    // Get profile ID
+    // Get the image in one super query
     $sql = "
-  SELECT TOP 1 [PreviousProfiles].[ID]    FROM [CurrClubHealth]    INNER JOIN [PreviousProfiles] ON [CurrClubHealth].[OCID] = [PreviousProfiles].[OCID]
-    WHERE [CurrClubHealth].[Centre] = '$centre'
-    AND [CurrClubHealth].[StatusDesc] = 'Active'
+SELECT TOP 1 [UpFiles].[UpFile]    ,[UpFiles].[FileType]
+    ,[Years].[YearEnd]FROM [CurrClubHealth]    INNER JOIN [PreviousProfiles] ON [CurrClubHealth].[OCID] = [PreviousProfiles].[OCID]	  INNER JOIN [Years] ON [PreviousProfiles].[YearID] = [Years].[YearID]	  INNER JOIN [ProfileUpFiles] ON [PreviousProfiles].[ID] = [ProfileUpFiles].[ProfileID]  	INNER JOIN [UpFiles] ON [ProfileUpFiles].[ImageID] = [UpFiles].[ID]WHERE [CurrClubHealth].[Centre] = '$centre'    AND [CurrClubHealth].[StatusDesc] = 'Active'	  AND [Years].[YearID] = '22'
   ";
   
     // Remove unwanted clubs specified in config
@@ -298,9 +352,6 @@ function icuclub_club_image($centre) {
       }
     }
   
-  $sql .= "    ORDER BY [PreviousProfiles].[ID] DESC
-  ";
-  
     $result = mssql_query($sql);
     if($result === TRUE || $result === FALSE) {
        drupal_not_found(); // No society
@@ -313,24 +364,8 @@ function icuclub_club_image($centre) {
        return;
     }
   
-    $profile_id = $res->ID;
-  
-    // Image
-    $sql = "
-  SELECT TOP 1         [UpFiles].[UpFile]        ,[UpFiles].[FileType]    FROM [UpFiles]    INNER JOIN [ProfileUpFiles] ON [ProfileUpFiles].[ImageID] = [UpFiles].[ID]
-    WHERE [ProfileUpFiles].[ProfileID] = '$profile_id'
-  ";
-  
-    $result = mssql_query($sql);
-    if($result === TRUE || $result === FALSE) {
-       drupal_not_found();
-    }
-  
-    $res = mssql_fetch_object($result);
-    if(!is_object($res)) {
-       drupal_not_found();
-    }
-    cache_set('icuclub_cache_image_'.$centre, $res);
+    cache_set('icuclub_cache_image_'.$centre, $res, NULL, strtotime($res->YearEnd)); // Expire it when we roll over year
+    cache_set('icuclub_year_end', $res->YearEnd); // Drupal won't delete expired caches unless you click the clear all button, so store when we need to clear the cache
   } else {
     $res = cache_get('icuclub_cache_image_'.$centre)->data;
   }
@@ -355,6 +390,8 @@ function icuclub_club($centre) {
     return;
   }
 
+  $centre = mssql_escape($centre);
+
   mssql_select_db(variable_get('icuerpol_database'));
 
   // Avoid truncation
@@ -366,14 +403,14 @@ function icuclub_club($centre) {
   if(!cache_get('icuclub_cache_page_'.$centre)) {
     // No need to worry about escaping, we are numeric! Cast to avoid truncation
     $sql = "
-  SELECT TOP 1 [CurrClubHealth].[OCDesc]        ,[CurrClubHealth].[StatusDesc]        ,[CurrClubHealth].[Centre]
-        ,[PreviousProfiles].[ID]
-        ,[PreviousProfiles].[ProfileCategoryID]
-  	  ,CAST ([PreviousProfiles].[LargeProfile] AS TEXT) [LargeProfile]
-    FROM [CurrClubHealth]    INNER JOIN [PreviousProfiles] ON [CurrClubHealth].[OCID] = [PreviousProfiles].[OCID]
-    WHERE [CurrClubHealth].[Centre] = '$centre'
-    AND [CurrClubHealth].[StatusDesc] = 'Active'
-  ";
+SELECT [OCNames].[OCNameTypeName]
+      ,[OffComms].[OCDesc]      ,[ProfileCategories].[ProfileCatDesc]      ,CAST ([PreviousProfiles].[LargeProfile] AS TEXT) [LargeProfile]
+	   	,[OffComms].[Website]  		,[OffComms].[GeneralEmail]
+      ,[Years].[YearID]
+      ,[Years].[YearStart]
+      ,[Years].[YearEnd]FROM [CurrClubHealth]  INNER JOIN [PreviousProfiles] ON [CurrClubHealth].[OCID] = [PreviousProfiles].[OCID]	INNER JOIN [OCNames] ON [CurrClubHealth].[OCID] = [OCNames].[OCID]	INNER JOIN [Years] ON [PreviousProfiles].[YearID] = [Years].[YearID]
+  INNER JOIN [OffComms] ON [CurrClubHealth].[OCID] = [OffComms].[OCID]  LEFT OUTER JOIN [ProfileCategories] ON [ProfileCategories].[ProfileCatID] = [PreviousProfiles].[ProfileCategoryID]WHERE [CurrClubHealth].[Centre] = '$centre'  AND [CurrClubHealth].[StatusDesc] = 'Active'	AND [OCNames].[OCNameTypeId] = '1'	AND [Years].[YearID] = '22'
+";
       // Remove unwanted clubs specified in config
     if(variable_get('icuclub_filter') != '' && variable_get('icuclub_filter') != NULL) {
       $filters = explode(',', variable_get('icuclub_filter'));
@@ -384,9 +421,6 @@ function icuclub_club($centre) {
       }
     }
   
-  $sql .= "    ORDER BY [PreviousProfiles].[ID] DESC
-  ";
-  
     $result = mssql_query($sql);
     if($result === TRUE || $result === FALSE) {
        drupal_not_found(); // No society
@@ -398,36 +432,17 @@ function icuclub_club($centre) {
        drupal_not_found(); // No society
        return;
     }
-  
-    $profile_id = $res->ID;
   
     // Load the theme icuclub_club with given parameters
-    preg_match('/(?<= )(.*)/', $res->OCDesc, $nicetitle);
-  
+    $nicetitle = $res->OCNameTypeName;
     $clubdesc = $res->LargeProfile;
     $OCDesc = $res->OCDesc;
+    $YearID = $res->YearID;
+    $YearStart = $res->YearStart;
+    $YearEnd = $res->YearEnd;
   
-    // Find profile category description (Can't JOIN as if unset, we lose the club, but a different JOIN might fix this)
-    // for future ref, here is the JOINed sql:
-    /*
-  SELECT TOP 1 [CurrClubHealth].[OCDesc]        ,[CurrClubHealth].[StatusDesc]        ,[CurrClubHealth].[Centre]        ,[PreviousProfiles].[ID]        ,[ProfileCategories].[ProfileCatDesc]  	  ,CAST ([PreviousProfiles].[LargeProfile] AS TEXT)    FROM [CurrClubHealth]    INNER JOIN [PreviousProfiles] ON [CurrClubHealth].[OCID] = [PreviousProfiles].[OCID]    INNER JOIN [ProfileCategories] ON [ProfileCategories].[ProfileCatID] = [PreviousProfiles].[ProfileCategoryID]    WHERE [CurrClubHealth].[Centre] = '$centre'    AND [CurrClubHealth].[StatusDesc] = 'Active'    ORDER BY [PreviousProfiles].[ID] DESC
-    */
-  
-    $sql = "
-  SELECT [ProfileCatDesc]
-    FROM [ProfileCategories]    WHERE [ProfileCatID] = '$res->ProfileCategoryID'
-  ";
-  
-    $sectionname = null;
-  
-    $result = mssql_query($sql);
-    if($result === TRUE || $result === FALSE) {
-       drupal_not_found(); // No society
-       return;
-    }
-  
-    $res = mssql_fetch_object($result);
-    if(!is_object($res)) {
+    // Convert section name to a nicer format
+    if($res->ProfileCatDesc == NULL) {
       $sectionname = "Unknown club type";
       $sectioncode = 'unknown';
     } else {
@@ -436,23 +451,6 @@ function icuclub_club($centre) {
     }
   
     // Contact Details
-    $sql = "
-  SELECT TOP 1 [Website]        ,[GeneralEmail]
-    FROM [OffComms]    WHERE [Centre] = '$centre'
-  ";
-  
-    $result = mssql_query($sql);
-    if($result === TRUE || $result === FALSE) {
-       drupal_not_found(); // No society
-       return;
-    }
-  
-    $res = mssql_fetch_object($result);
-    if(!is_object($res)) {
-       drupal_not_found(); // No society
-       return;
-    }
-  
     if($res->GeneralEmail == null) {
       $email = t('No email address has been recorded');
     } elseif(strpos($res->GeneralEmail, '@') === FALSE) {
@@ -469,9 +467,8 @@ function icuclub_club($centre) {
   
     // Committee
     $sql = "
-  SELECT [PeoplePositions].[YearPost]        ,[PeoplePositions].[YearStart]  	  ,[PeopleDetails].[FirstName]  	  ,[PeopleDetails].[Surname]    FROM [PeoplePositions]    INNER JOIN [PeopleDetails] ON [PeoplePositions].[PeopleID] = [PeopleDetails].[ID]    WHERE [PeoplePositions].[OCDesc] = '$OCDesc'
-    ORDER BY [PeoplePositions].[YearStart] DESC
-  ";
+SELECT [PeoplePositions].[YearPost]	  ,[PeopleDetails].[FirstName]	  ,[PeopleDetails].[Surname]FROM [PeoplePositions]  INNER JOIN [PeopleDetails] ON [PeoplePositions].[PeopleID] = [PeopleDetails].[ID]  INNER JOIN [Years] ON [PeoplePositions].[YearStart] = [Years].[YearStart]WHERE [PeoplePositions].[OCDesc] = '$OCDesc'  AND [Years].[YearID] = '$YearID'
+";
   
     $result = mssql_query($sql);
     if($result === TRUE || $result === FALSE) {
@@ -479,51 +476,22 @@ function icuclub_club($centre) {
        return;
     }
   
-    $acc_time = 0;
     $committee = array();
   
     while($res = mssql_fetch_object($result)) {
-      $date = strtotime($res->YearStart);
-      
-      // Dont show positions not yet started
-      if($date > time()) {
-        continue;
-      }
-  
-      if($date != $acc_time && $acc_time != 0) {
-        continue;
-      } // Only show one year's worth
-  
-      $acc_time = $date;
       $post = explode(' - ', $res->YearPost); // remove junk, keep position
       $committee[$post[1]] = $res->FirstName.' '.$res->Surname;
     }
   
     // Image
-    $sql = "
-  SELECT COUNT(*) AS num     FROM [UpFiles]    INNER JOIN [ProfileUpFiles] ON [ProfileUpFiles].[ImageID] = [UpFiles].[ID]
-    WHERE [ProfileUpFiles].[ProfileID] = '$profile_id'
-  ";
+    // I removed this query as apparently it is required that images are submitted with the form, so we assume there is an image
   
-    $result = mssql_query($sql);
-    if($result === TRUE || $result === FALSE) {
-       drupal_not_found();
-    }
-  
-    $res = mssql_fetch_object($result);
-    if(!is_object($res)) {
-       drupal_not_found();
-    }
-  
-    if($res->num > 0) {
-      $hasimage = true;
-    } else {
-      $hasimage = false;
-    }
-  
-    $cache = array('clubdesc' => $clubdesc, 'clubsection' => $sectioncode, 'clubsectionname' => $sectionname, 'clubemail' => $email, 'clubwebsite' => $website, 'clubhasimage' => $hasimage, 'clubcommittee' => $committee, 'nicetitle' => $nicetitle, 'OCDesc' => $OCDesc);
-    cache_set('icuclub_cache_page_'.$centre, $cache);
+    // Store in cache
+    $cache = array('clubdesc' => $clubdesc, 'clubsection' => $sectioncode, 'clubsectionname' => $sectionname, 'clubemail' => $email, 'clubwebsite' => $website, 'clubhasimage' => true, 'clubcommittee' => $committee, 'nicetitle' => $nicetitle, 'OCDesc' => $OCDesc, 'YearID' => $YearID);
+    cache_set('icuclub_cache_page_'.$centre, $cache, NULL, strtotime($YearStart));
+    cache_set('icuclub_year_end', $YearEnd);
   } else {
+    // Load from cache
     $res = cache_get('icuclub_cache_page_'.$centre)->data;
     $clubdesc = $res['clubdesc'];
     $sectioncode = $res['clubsection'];
@@ -534,116 +502,47 @@ function icuclub_club($centre) {
     $committee = $res['clubcommittee'];
     $OCDesc = $res['OCDesc'];
     $nicetitle = $res['nicetitle'];
+    $YearID = $res['YearID'];
   }
 
   // Membership
   // Current
-  $curryear = (int) date('Y', time());
   
-  $sql = "
-SELECT COUNT(*) AS num FROM [PeopleClubMemberships]WHERE [YearStart] = '".$curryear."-08-01 00:00:00.000'AND [OCDesc] = '$OCDesc'
-";
-
-  $num_curr = null;
-  $result = mssql_query($sql);
-  if($result === TRUE || $result === FALSE) {
-      $num_curr = 0;
-  }
-
-  $res = mssql_fetch_object($result);
-  if(!is_object($res)) {
-      $num_curr = 0;
-  }
-
-  if($num_curr !== 0) {
-    $num_curr = $res->num;
-  }
-
-  // Last
-  $curryear = $curryear - 1;
+  $num_curr = 0;
+  $num_last = 0;
 
   $sql = "
-SELECT COUNT(*) AS num FROM [PeopleClubMemberships]WHERE [YearStart] = '".$curryear."-08-01 00:00:00.000'AND [OCDesc] = '$OCDesc'
+SELECT COUNT(*) [NumMemberships]	    ,[Years].[YearID]FROM [PeopleClubMemberships]  LEFT JOIN [Years] ON [PeopleClubMemberships].[YearStart] = [Years].[YearStart]WHERE [OCDesc] = '$OCDesc'  AND
+  (       [Years].[YearID] = '$YearID'    OR [Years].[YearID] = '".($YearID - 1)."'  )GROUP BY [Years].[YearID]ORDER BY [Years].[YearID] ASC
 ";
 
-  $num_last = null;
   $result = mssql_query($sql);
-  if($result === TRUE || $result === FALSE) {
-      $num_last = 0;
-  }
-
-  $res = mssql_fetch_object($result);
-  if(!is_object($res)) {
-      $num_last = 0;
-  }
-
-  if($num_last !== 0) {
-    $num_last = $res->num;
+  if($result !== TRUE && $result !== FALSE) {
+    while($res = mssql_fetch_object($result)) {
+      if($res->YearID = $YearID) {
+        $num_curr = $res->NumMemberships;
+      } elseif($res->YearID = ($YearID - 1)) {
+        $num_last = $res->NumMemberships;
+      }
+    }
   }
 
   mssql_close($db);
 
-  drupal_set_title($nicetitle[0]);
+  drupal_set_title($nicetitle);
 
-  $output = theme("icuclub_club", array('clubcentre' => $centre, 'clubdesc' => $clubdesc, 'clubsection' => $sectioncode, 'clubsectionname' => $sectionname, 'clubemail' => $email, 'clubwebsite' => $website, 'clubhasimage' => $hasimage, 'clubcommittee' => $committee, 'clubcurrentmembers' => $num_curr, 'clublastmembers' => $num_last));
+  $output = theme("icuclub_club", array('clubcentre' => $centre, 'clubdesc' => $clubdesc, 'clubsection' => $sectioncode, 'clubsectionname' => $sectionname, 'clubemail' => $email, 'clubwebsite' => $website, 'clubhasimage' => true, 'clubcommittee' => $committee, 'clubcurrentmembers' => $num_curr, 'clublastmembers' => $num_last));
   return $output;
 }
 
 // Membership block - find clubs the current user is a member of
 function block_icuclub_membership($delta) {
-  global $user;
+  icuclub_gen_memberships(); // Generate memberships, stored in a global variable for use later
 
-  if(!isset($user->name)) {
-    return; // not logged in
-  }
+  global $icuclub_memberships;
 
-  $db = @mssql_connect(variable_get('icuerpol_hostname'), variable_get('icuerpol_username'), variable_get('icuerpol_password'));
-  if(!$db) {
-    $output = theme("icuclub_block_memberships", array('clubs' => array()));
-    return $output;
-  }
-
-  mssql_select_db(variable_get('icuerpol_database'));
-
-  // Find CID
-  $sql = "
-SELECT [CID]  FROM [PeopleDetails]  WHERE [Login] = '".strtolower($user->name)."'
-";
-
-  $result = mssql_query($sql);
-  if($result === TRUE || $result === FALSE) {
-    $output = theme("icuclub_block_memberships", array('clubs' => array()));
-    return $output;
-  }
-
-  $res = mssql_fetch_object($result);
-  if(!is_object($res)) {
-    $output = theme("icuclub_block_memberships", array('clubs' => array()));
-    return $output;
-  }
-
-  $cid = $res->CID;
-
-  // Now find clubs, surely there must be a way to merge the two into one
-  $curryear = (int) date('Y', time());
-  $sql = "
-SELECT [CurrClubHealth].[Centre]  ,[PeopleClubMemberships].[OCDesc]  FROM [PeopleClubMemberships]  INNER JOIN [CurrClubHealth] ON [PeopleClubMemberships].[OCDesc] = [CurrClubHealth].[OCDesc]  WHERE [PeopleClubMemberships].[CID] = '$cid'
-  AND [YearStart] = '".$curryear."-08-01 00:00:00.000'
-";
-
-  $result = mssql_query($sql);
-  if($result === TRUE || $result === FALSE) {
-    $output = theme("icuclub_block_memberships", array('clubs' => array()));
-    return $output;
-  }
-
-  $socs = array();
-  while($res = mssql_fetch_object($result)) {
-    preg_match('/(?<= )(.*)/', $res->OCDesc, $nicetitle);
-    $socs[$res->Centre] = $nicetitle[0];
-  }
-
-  $output = theme("icuclub_block_memberships", array('clubs' => $socs));
+  // We generated this data earlier - we do this because we may need this data on a page that the block is not visible on
+  $output = theme("icuclub_block_memberships", array('clubs' => $icuclub_memberships));
   return $output;
 }
 
@@ -670,7 +569,7 @@ function block_icuclub_atoz($delta) {
     return; // DON'T return not found, just do nothing and the block won't show
   }
 
-  $societies = $cache['societies'];
+  $societies = $cache;
 
   // Now put these into A-Z arrays
   $letters = array('A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z');
@@ -708,28 +607,14 @@ function icuclub_genatoz() {
 
   mssql_select_db(variable_get('icuerpol_database'));
 
-  // First get profile types
+  // Now get all clubs which are active
   $sql = "
-SELECT [ProfileCatDesc]
-      ,[ProfileCatID]
-  FROM [ProfileCategories]";
-
-  $sections = array();
-
-  $result = mssql_query($sql);
-  if($result === TRUE || $result === FALSE) {
-      // No profile types
-      return;
-  }
-
-  while($res = mssql_fetch_object($result)) {
-    $sections[$res->ProfileCatID] = array('name' => $res->ProfileCatDesc, 'code' => strtolower(str_replace(' ', '_', str_replace('&', '_', $res->ProfileCatDesc))));
-  }
-
-  // Now get all clubs wgucg are actuve
-  $sql = "
-SELECT [CurrClubHealth].[OCDesc]      ,[CurrClubHealth].[Centre]      ,[PreviousProfiles2].[ProfileCategoryID]	  ,[PreviousProfiles2].[OCID]	  ,[PreviousProfiles2].[YearDesc]  FROM [CurrClubHealth]  CROSS APPLY ( SELECT TOP 1 [PreviousProfiles].[ProfileCategoryID], [PreviousProfiles].[OCID], [PreviousProfiles].[YearDesc]                FROM [PreviousProfiles] WHERE [PreviousProfiles].[OCID] = [CurrClubHealth].[OCID]                ORDER BY [PreviousProfiles].[YearDesc] DESC
-              ) [PreviousProfiles2]  WHERE [CurrClubHealth].[StatusDesc] = 'Active'";
+SELECT [OCNames].[OCNameTypeName]
+      ,[CurrClubHealth].[Centre]
+      ,[ProfileCategories].[ProfileCatDesc]      ,[Years].[YearID]
+      ,[Years].[YearStart]
+      ,[Years].[YearEnd]FROM [CurrClubHealth]  INNER JOIN [PreviousProfiles] ON [CurrClubHealth].[OCID] = [PreviousProfiles].[OCID]	INNER JOIN [OCNames] ON [CurrClubHealth].[OCID] = [OCNames].[OCID]	INNER JOIN [Years] ON [PreviousProfiles].[YearID] = [Years].[YearID]
+  LEFT OUTER JOIN [ProfileCategories] ON [ProfileCategories].[ProfileCatID] = [PreviousProfiles].[ProfileCategoryID]WHERE [CurrClubHealth].[StatusDesc] = 'Active'	AND [OCNames].[OCNameTypeId] = '1'	AND [Years].[YearID] = '22'";
 
   // Remove unwanted clubs specified in config
   if(variable_get('icuclub_filter') != '' && variable_get('icuclub_filter') != NULL) {
@@ -753,15 +638,32 @@ SELECT [CurrClubHealth].[OCDesc]      ,[CurrClubHealth].[Centre]      ,[Previo
   while($res = mssql_fetch_object($result)) {
     if(!is_numeric($res->Centre)): continue; endif; // Only numeric centres (i.e. no D/U etc.)
 
-    preg_match('/(?<= )(.*)/', $res->OCDesc, $nicetitle);
-    $societies[strtolower($nicetitle[0]).'_'.$res->Centre] = array('centre' => $res->Centre, 'name' => $nicetitle[0], 'letter' => strtolower($nicetitle[0][0]), 'type' => $res->ProfileCategoryID);
+    $YearEnd = $res->YearEnd;
+    $nicetitle = $res->OCNameTypeName;
+
+    if($res->ProfileCatDesc == NULL) {
+      $sectionname = "Unknown club type";
+      $sectioncode = 'unknown';
+    } else {
+      $sectionname = $res->ProfileCatDesc;
+      $sectioncode = strtolower(str_replace(' ', '_', str_replace('&', '_', $sectionname)));
+    }
+
+    // nonalphabetical letters become hash
+    $letters = array('A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z');
+    $letter = $nicetitle[0];
+
+    if(array_search(strtoupper($letter), $letters) === FALSE) {
+      $letter = '#';
+    }
+
+    $societies[strtolower($nicetitle).'_'.$res->Centre] = array('centre' => $res->Centre, 'name' => $nicetitle, 'letter' => $letter, 'sectionname' => $sectionname, 'sectioncode' => $sectioncode);
   }
 
   // Sort alphabetically
   ksort($societies);
 
-  $cache = array('societies' => $societies, 'sections' => $sections);
-  cache_set('icuclub_cache_atoz', $cache); // Set cache
+  cache_set('icuclub_cache_atoz', $societies); // Set cache
 }
 
 /**

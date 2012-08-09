@@ -5,6 +5,7 @@
 // count how many societies we have
 $socs = count($atozclubs);
 $socs_in_list = ceil($socs / 2); // number in each side of the list
+$alltypes = array(); // All types of club
 ?>
 
 <ul class="atoz-list-left">
@@ -14,13 +15,10 @@ $socs_in_list = ceil($socs / 2); // number in each side of the list
   if($i == $socs_in_list): continue; endif; // only allow a certain number of socs into list 
   $i++; // we are adding a new soc to this list
 
-  if(array_key_exists($club['type'], $atozcats)) {
-    $typename = $atozcats[$club['type']]['name'];
-    $typecode = $atozcats[$club['type']]['code'];
-  } else {
-    $typename = 'Unknown club type';
-    $typecode = 'unknown';
-  }
+  $typename = $club['sectionname'];
+  $typecode = $club['sectioncode'];
+
+  $alltypes[$typename] = $typecode;
 ?>
 <li class="atoz-soc atoz-soc-cat-<?php echo $typecode; ?> atoz-soc-let-<?php echo $club['letter']; ?>"><a href="<?php echo url('activities/a-to-z/'.$club['centre']); ?>"><?php echo $club['name']; ?></a><div class="atoz-sec club-sec-<?php echo $typecode; ?>"><?php echo $typename; ?></div></li>
 <?php endforeach; ?>
@@ -32,13 +30,10 @@ $socs_in_list = ceil($socs / 2); // number in each side of the list
 <?php
   if($i < $socs_in_list): $i++; continue; endif; // only allow socs not in the first list in
 
-  if(array_key_exists($club['type'], $atozcats)) {
-    $typename = $atozcats[$club['type']]['name'];
-    $typecode = $atozcats[$club['type']]['code'];
-  } else {
-    $typename = 'Unknown club type';
-    $typecode = 'unknown';
-  }
+  $typename = $club['sectionname'];
+  $typecode = $club['sectioncode'];
+
+  $alltypes[$typename] = $typecode;
 ?>
 <li class="atoz-soc atoz-soc-cat-<?php echo $typecode; ?> atoz-soc-let-<?php echo $club['letter']; ?>"><a href="<?php echo url('activities/a-to-z/'.$club['centre']); ?>"><?php echo $club['name']; ?></a><div class="atoz-sec club-sec-<?php echo $typecode; ?>"><?php echo $typename; ?></div></li>
 <?php endforeach; ?>
@@ -54,8 +49,9 @@ $socs_in_list = ceil($socs / 2); // number in each side of the list
 <h3>By type</h3>
 <ul>
 <?php
-  foreach($atozcats as $cat):
-    echo '<li><input type="checkbox" checked name="club-sec-'.$cat['code'].'" id="club-sec-'.$cat['code'].'">&nbsp;<label class="atoz-filter-sec club-sec-'.$cat['code'].'" for="club-sec-'.$cat['code'].'">'.$cat['name'].'</label></li>';
+  ksort($alltypes);
+  foreach($alltypes as $type => $code):
+    echo '<li><input type="checkbox" checked name="club-sec-'.$code.'" id="club-sec-'.$code.'">&nbsp;<label class="atoz-filter-sec club-sec-'.$code.'" for="club-sec-'.$code.'">'.$type.'</label></li>';
   endforeach;
 ?>
 </ul>
