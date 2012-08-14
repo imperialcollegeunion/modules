@@ -5,6 +5,9 @@ core = 7.x
 files[] = icucommittees.module
 files[] = icucommittees.tpl.php
 files[] = icucommittees_year.tpl.php
+files[] = icucommittees_year_board.tpl.php
+files[] = icucommittees_year_board_meeting.tpl.php
+files[] = README.md
 
 dependencies[] = icuerpol
 
