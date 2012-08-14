@@ -1,0 +1,8 @@
+name = Restrict IC Username
+description = "Prevents users with registering with usernames equal to an IC username or CID"
+version = "7.x-1.0"
+core = 7.x
+dependencies[] = icuerpol
+package = Imperial College Union
+files[] = restrict_ic_username.module
+files[] = README.md

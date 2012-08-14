@@ -1,0 +1,37 @@
+<?php
+
+// Validate function
+function restrict_ic_username_validate($form) {
+  $username = $form['account']['name']['#value'];
+  
+  if(!erpol_connect()) {
+    form_set_error('name', t('We are encountering database issues, please try again later'));
+  }
+
+  $username = strtolower(mssql_escape($username));
+
+  // Find if an ERPOL user, if not, we cannot have societies hence we shouldnt show the block
+  // check CID for associate members
+  $sql = "SELECT COUNT(*) AS num FROM [PeopleDetails] WHERE [Login] = '$username' OR [CID] = '$username'";
+  $result = mssql_query($sql);
+  
+  if($result === TRUE || $result === FALSE) {
+    $icuclub_memberships = null;
+  }
+
+  $obj = mssql_fetch_object($result);
+
+  if(is_object($obj)) {
+    $count = $obj->num;
+    if($count != 0) {
+      form_set_error('name', t('This username is already registered against a member of Imperial College Union'));
+    }
+  }
+}
+
+// Register validator
+function restrict_ic_username_form_alter(&$form, &$form_state, $form_id) {
+  if($form_id == 'user_register_form') {  
+    $form['#validate'][] = 'restrict_ic_username_validate';
+  }
+}
