@@ -98,6 +98,9 @@ function icuclub_admin() {
 function icuclub_gen_memberships() {
   global $user;
   global $icuclub_memberships;
+  global $is_erpol_user;
+
+  $is_erpol_user = false; // We are initially NOT in Erpol (i.e. we are general public)
 
   $icuclub_memberships = array();
 
@@ -111,6 +114,32 @@ function icuclub_gen_memberships() {
 
   $username = mssql_escape($user->name);
 
+  // Find if an ERPOL user, if not, we cannot have societies hence we shouldnt show the block
+  // check CID for associate members
+  $sql = "SELECT COUNT(*) AS num FROM [PeopleDetails] WHERE [Login] = '$username' OR [CID] = '$username'";
+  $result = mssql_query($sql);
+  
+  if($result === TRUE || $result === FALSE) {
+    $icuclub_memberships = null;
+  }
+
+  $obj = mssql_fetch_object($result);
+
+  if(is_object($obj)) {
+    $count = $obj->num;
+    if($count == 0) {
+      $is_erpol_user = false;
+      $icuclub_memberships = null; // Cannot have memberships if not in NewERPOL
+      return;
+    } else {
+      $is_erpol_user = true;
+    }
+  } else {
+    $is_erpol_user = false;
+    $icuclub_memberships = null; // Cannot have memberships if not in NewERPOL
+    return;
+  }
+
   // Find all memberships in the current year
   $curryear = (int) date('Y', time());
   $sql = "
@@ -120,6 +149,7 @@ SELECT [CurrClubHealth].[Centre]	    ,[OCNames].[OCNameTypeName]FROM [PeopleCl
 
   $result = mssql_query($sql);
   if($result === TRUE || $result === FALSE) {
+    $icuclub_memberships = null;
     return;
   }
 
@@ -497,6 +527,11 @@ function block_icuclub_membership($delta) {
   icuclub_gen_memberships(); // Generate memberships, stored in a global variable for use later
 
   global $icuclub_memberships;
+  global $is_erpol_user;
+
+  if(!is_array($icuclub_memberships) || !$is_erpol_user) {
+    return; // no block in these cases
+  }
 
   // We generated this data earlier - we do this because we may need this data on a page that the block is not visible on
   $output = theme("icuclub_block_memberships", array('clubs' => $icuclub_memberships));
