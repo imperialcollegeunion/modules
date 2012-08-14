@@ -116,7 +116,7 @@ function icuclub_gen_memberships() {
 
   // Find if an ERPOL user, if not, we cannot have societies hence we shouldnt show the block
   // check CID for associate members
-  $sql = "SELECT COUNT(*) AS num FROM [PeopleDetails] WHERE [Login] = '$username' OR [CID] = '$username'";
+  $sql = "SELECT COUNT(*) AS num FROM [PeopleDetails] WHERE [OptedOut] = '0' AND ([Login] = '$username' OR [CID] = '$username')";
   $result = mssql_query($sql);
   
   if($result === TRUE || $result === FALSE) {

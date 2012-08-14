@@ -1,0 +1,162 @@
+<?php
+
+// register admin url
+function uc_icu_restrictions_menu() {
+  $items['admin/store/settings/membership_restrictions'] = array( // This positions it in configuration -> system
+    'title' => t('Membership Restrictions'), // Page title, also shown as menu title
+    'description' => t('Set which product classes can only be bought by ICU members, club members, and club nonmembers'),
+    'page callback' => 'drupal_get_form', // Signifies a form page
+    'page arguments' => array('uc_icu_restrictions_admin'), // Form is here
+    'type' => MENU_NORMAL_ITEM, // Do show menu item
+    'access arguments' => array('administer store'), // Admins only
+  );
+
+  return $items;
+}
+
+// load validator
+function uc_icu_restrictions_form_alter(&$form, &$form_state, $form_id) {
+  $forms = array('uc_product_add_to_cart_form', 'uc_catalog_buy_it_now_form');
+  foreach ($forms as $id) {
+    if (drupal_substr($form_id, 0, drupal_strlen($id)) == $id ) {
+      $form['#validate'][] = 'uc_icu_restrictions_validate_form_addtocart';
+      $nid = $form['nid']['#value'];
+      $error = uc_icu_restrictions_validate($nid);
+      if($error['success'] === FALSE) {
+        $form['actions']['submit']['#disabled'] = TRUE;
+        $form['actions']['submit']['#suffix'] = $error['message'];
+      }
+    }
+  }
+}
+
+// Admin page
+function uc_icu_restrictions_admin() {
+  $form = array();
+
+  $form['uc_icu_restrictions_centre'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Centre field'),
+    '#default_value' => variable_get('uc_icu_restrictions_centre'),
+    '#description' => t("Machine name for the field which contains the club centre. This MUST exist in all content types detailed below except the first"),
+    '#required' => TRUE,
+  );
+
+  $form['uc_icu_restrictions_icuonly'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Content types for ICU members only'),
+    '#default_value' => variable_get('uc_icu_restrictions_icuonly'),
+    '#description' => t("Comma separated list of machine names for content types belonging to products that should only be available to purchase by ICU Members. Example: aaa or aaa,bbb"),
+    '#required' => TRUE,
+  );
+
+  $form['uc_icu_restrictions_club_nonmembers'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Content types for club NON members (implies ICU member)'),
+    '#default_value' => variable_get('uc_icu_restrictions_club_nonmembers'),
+    '#description' => t("Comma separated list of machine names for content types belonging to products that should only be available to purchase by people who are not a member of the club. The club will be found from the centre field. A check is automatically made to see if the user is a member of ICU so do not duplicate this list above."),
+    '#required' => TRUE,
+  );
+
+  $form['uc_icu_restrictions_club_members'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Content types for club members (implies ICU member)'),
+    '#default_value' => variable_get('uc_icu_restrictions_club_members'),
+    '#description' => t("Comma separated list of machine names for content types belonging to products that should only be available to purchase by people who are a member of the club. The club will be found from the centre field. A check is automatically made to see if the user is a member of ICU so do not duplicate this list above."),
+    '#required' => TRUE,
+  );
+
+
+  return system_settings_form($form); // this will also save
+}
+
+function uc_icu_restrictions_validate($nid) {
+  $node = node_load($nid);
+
+  $nodetype = $node->type;
+
+  // Load important variables
+  global $is_erpol_user;
+  global $icuclub_memberships;
+
+  if(!isset($is_erpol_user) || !isset($icuclub_memberships)) {
+    // Load data if necessary
+    icuclub_gen_memberships();
+  }
+
+  // See if node type is in list of nodes which are for only members of ICU, club nonmembers, or club members
+  // Note if a node type is restricted for club members/nonmembers, it is still a requirement to be part of ICU.
+  $centrefield = variable_get('uc_icu_restrictions_centre');
+  $icu_only = explode(",", variable_get('uc_icu_restrictions_icuonly'));
+  $club_non = explode(",", variable_get('uc_icu_restrictions_club_nonmembers'));
+  $club_members = explode(",", variable_get('uc_icu_restrictions_club_members'));
+
+  if(array_search(strtolower($nodetype), $icu_only) !== FALSE) {
+    $mode = 'icuonly';
+  } elseif(array_search(strtolower($nodetype), $club_non) !== FALSE) {
+    $mode = 'clubnon';
+  } elseif(array_search(strtolower($nodetype), $club_members) !== FALSE) {
+    $mode = 'clubonly';
+  } else {
+    $mode = 'any';
+  }
+
+  switch($mode) {
+    case 'any':
+      // If access is for everyone, dont do anything
+      return(array('success' => TRUE));
+      break;
+    case 'icuonly':
+      // We have to be an erpol user
+      if(!$is_erpol_user) {
+        return(array('success' => FALSE, 'message' => t('Only members of Imperial College Union may purchase this product')));
+      }
+      break;
+    case 'clubnon':
+      // We have to be an erpol user
+      if(!$is_erpol_user) {
+        return(array('success' => FALSE, 'message' => t('Only members of Imperial College Union may purchase this product')));
+      }
+
+      // We must NOT be a club member
+      $centre = field_get_items('node', $node, $centrefield);
+      $centre = $centre[0]['value'];
+      if(array_key_exists($centre, $icuclub_memberships)) {
+        return(array('success' => FALSE, 'message' => t('This product can not be purchased by people who are not members of this club')));
+      }
+      break;
+    case 'clubonly':
+      // We have to be an erpol user
+      if(!$is_erpol_user) {
+        return(array('success' => FALSE, 'message' => t('Only members of Imperial College Union may purchase this product')));
+      }
+
+      // We must be a club member
+      $centre = field_get_items('node', $node, $centrefield);
+      $centre = $centre[0]['value'];
+      if(!array_key_exists($centre, $icuclub_memberships)) {
+        return(array('success' => FALSE, 'message' => t('This product can only be purchased by members of this club')));
+      }
+      break;
+  }
+  
+  // If we havent given up
+  return(array('success' => TRUE));
+}
+
+function uc_icu_restrictions_validate_form_addtocart($form, &$form_state) {
+  $class = $form_state['clicked_button']['#attributes']['class'];
+
+  // Uses the class of the add to cart button of both node view and catalog
+  // view to decide if we should validate stock or not
+  // i.e. If some other form_alter added another button, do nothing (uc_wishlist)
+  if(in_array('node-add-to-cart', $class) || in_array('list-add-to-cart', $class)) {
+    $nid = $form_state['values']['nid'];
+
+    $error = uc_icu_restrictions_validate($nid);
+    if($error['success'] === FALSE) {
+      drupal_set_message($error['message'], 'error');
+      drupal_goto('node/' . $nid);
+    }
+  }
+}

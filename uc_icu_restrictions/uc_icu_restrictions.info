@@ -1,0 +1,8 @@
+name = ICU Product Restrictions
+description = Allows restrictions on who can purchase a product based on their membership status
+core = 7.x
+version = "7.x-1.0"
+dependencies[] = icuerpol
+dependencies[] = icuclub
+package = Ubercart - extra
+configure = admin/store/settings/membership_restrictions
