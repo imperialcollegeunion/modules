@@ -5,4 +5,6 @@ version = "7.x-1.0"
 dependencies[] = icuerpol
 dependencies[] = icuclub
 package = Ubercart - extra
+files[] = uc_icu_restrictions.module
+files[] = README.md
 configure = admin/store/settings/membership_restrictions

@@ -1,5 +1,9 @@
 <?php
 
+/*
+ *  AS THIS MODULE IS BASED ON THE UC_OUT_OF_STOCK MODULE, IT IS LICENSED UNDER THE TERMS OF THE GNU GPL V2.
+ */
+
 // register admin url
 function uc_icu_restrictions_menu() {
   $items['admin/store/settings/membership_restrictions'] = array( // This positions it in configuration -> system
@@ -21,12 +25,21 @@ function uc_icu_restrictions_form_alter(&$form, &$form_state, $form_id) {
     if (drupal_substr($form_id, 0, drupal_strlen($id)) == $id ) {
       $form['#validate'][] = 'uc_icu_restrictions_validate_form_addtocart';
       $nid = $form['nid']['#value'];
-      $error = uc_icu_restrictions_validate($nid);
+      $qty = $form['qty']['#value'];
+      $error = uc_icu_restrictions_validate($nid, $qty);
       if($error['success'] === FALSE) {
         $form['actions']['submit']['#disabled'] = TRUE;
         $form['actions']['submit']['#suffix'] = $error['message'];
       }
     }
+  }
+
+  if ($form_id == 'uc_cart_view_form') {
+    $form['#validate'][] = 'uc_icu_restrictions_validate_form_cart';
+  }
+
+  if ($form_id == 'uc_cart_checkout_form' || $form_id == 'uc_cart_checkout_review_form') {
+    $form['#validate'][] = 'uc_icu_restrictions_validate_form_checkout';
   }
 }
 
@@ -39,6 +52,14 @@ function uc_icu_restrictions_admin() {
     '#title' => t('Centre field'),
     '#default_value' => variable_get('uc_icu_restrictions_centre'),
     '#description' => t("Machine name for the field which contains the club centre. This MUST exist in all content types detailed below except the first"),
+    '#required' => TRUE,
+  );
+
+  $form['uc_icu_restrictions_maxbuy'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Centre field'),
+    '#default_value' => variable_get('uc_icu_restrictions_maxbuy'),
+    '#description' => t("Machine name for the field which contains the maximum number of ap roduct that a customer can own. This MUST exist in ALL content types"),
     '#required' => TRUE,
   );
 
@@ -70,7 +91,7 @@ function uc_icu_restrictions_admin() {
   return system_settings_form($form); // this will also save
 }
 
-function uc_icu_restrictions_validate($nid) {
+function uc_icu_restrictions_validate($nid, $qty) {
   $node = node_load($nid);
 
   $nodetype = $node->type;
@@ -82,6 +103,45 @@ function uc_icu_restrictions_validate($nid) {
   if(!isset($is_erpol_user) || !isset($icuclub_memberships)) {
     // Load data if necessary
     icuclub_gen_memberships();
+  }
+
+  $maxorders = variable_get('uc_icu_restrictions_maxbuy');
+  $maxorders = field_get_items('node', $node, $maxorders);
+  $maxorders = (int) $maxorders[0]['value'];
+
+  if(!erpol_connect() && $maxorders != 0) {
+    $canbuy = false; // If we cant connect to the db, assume we cant buy, unless there is no restriction
+  } elseif($maxorders < $qty) {
+    // If the quantity to order is above the max quantity, dont allow
+    $canbuy = false;
+  } else {
+    // If we are an ERPOL user, see if we have restrictions
+    if($is_erpol_user && $maxorders != 0) {
+      $user = mssql_escape($user->name);
+      $sku = mssql_escape($node->sku);
+      $sql = "
+      SELECT SUM([OMProductQuantity]) AS [Quantity] FROM [PeopleOnlinePurchaseLines]      INNER JOIN [PeopleDetails] ON [PeopleDetails].[ID] = [PeopleOnlinePurchaseLines].[ID]      WHERE [ProductDesc] = '$sku'      AND (      	[PeopleDetails].[Login] = '$user'      	OR [PeopleDetails].[CID] = '$user'      )";
+      
+      if($result === TRUE || $result === FALSE) {
+        // If we dont know, dont allow to purchase
+        $canbuy = false;
+      }
+    
+      $obj = mssql_fetch_object($result);
+    
+      if(is_object($obj)) {
+        $count = $obj->Quantity;
+        if($count + $qty > $maxorders) {
+          $canbuy = false;
+        } else {
+          $canbuy = true;
+        }
+      } else {
+        $canbuy = false;
+      }
+    } else {
+      $canbuy = true;
+    }
   }
 
   // See if node type is in list of nodes which are for only members of ICU, club nonmembers, or club members
@@ -99,6 +159,10 @@ function uc_icu_restrictions_validate($nid) {
     $mode = 'clubonly';
   } else {
     $mode = 'any';
+  }
+
+  if(!$canbuy) {
+    return(array('success' => FALSE, 'message' => t('You are only allowed to purchase a maximum of '.$maxorders.' of this product, you have either already purchased your full allocation, or you have added too many to your basket')));
   }
 
   switch($mode) {
@@ -120,7 +184,7 @@ function uc_icu_restrictions_validate($nid) {
 
       // We must NOT be a club member
       $centre = field_get_items('node', $node, $centrefield);
-      $centre = $centre[0]['value'];
+      $centre = (int) $centre[0]['value'];
       if(array_key_exists($centre, $icuclub_memberships)) {
         return(array('success' => FALSE, 'message' => t('This product can not be purchased by people who are not members of this club')));
       }
@@ -133,7 +197,7 @@ function uc_icu_restrictions_validate($nid) {
 
       // We must be a club member
       $centre = field_get_items('node', $node, $centrefield);
-      $centre = $centre[0]['value'];
+      $centre = (int) $centre[0]['value'];
       if(!array_key_exists($centre, $icuclub_memberships)) {
         return(array('success' => FALSE, 'message' => t('This product can only be purchased by members of this club')));
       }
@@ -152,11 +216,106 @@ function uc_icu_restrictions_validate_form_addtocart($form, &$form_state) {
   // i.e. If some other form_alter added another button, do nothing (uc_wishlist)
   if(in_array('node-add-to-cart', $class) || in_array('list-add-to-cart', $class)) {
     $nid = $form_state['values']['nid'];
+    if(array_key_exists('qty', $form_state)) {
+      $qty = $form_state['values']['qty'];
+    } else {
+      $qty = 1; // in case not asked
+    }
 
-    $error = uc_icu_restrictions_validate($nid);
+    $error = uc_icu_restrictions_validate($nid, $qty);
     if($error['success'] === FALSE) {
       drupal_set_message($error['message'], 'error');
       drupal_goto('node/' . $nid);
     }
+  }
+}
+
+/**
+ * Helper function that would validate items in the cart referenced in a form
+ * Used in @uc_icu_restrictions_validate_form_checkout
+ * Used in @uc_icu_restrictions_validate_form_cart
+ *
+ * @param array $items
+ */
+function uc_icu_restrictions_validate_cart_items($items) {
+  // just in the rare case (http://drupal.org/node/496782)
+  // that $items is not an array, do nothing
+  if (!is_array($items)) {
+    return;
+  }
+
+  $cart_items = array();
+  $stored_cart_items = uc_cart_get_contents();
+  // First group by model
+  foreach ($items as $k => $item) {
+    // Convert it to object just in case is an array (if coming from a form POST)
+    $item = (object) $item;
+    // Unserialize data if string
+    if (is_string($item->data)) {
+      $item->data = unserialize($item->data);
+    }
+    // If the items comes from the submitted cart, it doesn't have the model
+    // set, so we try to get it from the stored cart items which is filled
+    // properly with the model.
+    // For that, we assume that the sorting is the same, and if not,
+    // we provide an alternative method which is probably not
+    // very good in terms of performance, but the sorting of both arrays
+    // should be the same
+    if (!isset($item->model)) {
+      $stored_item = $stored_cart_items[$item->cart_item_id];
+      if ($item->nid == $stored_item->nid && $item->data == $stored_item->data) {
+        $model = $stored_item->model;
+      }
+      else {
+        foreach ($stored_cart_items as $stored_item) {
+          if ($item->nid == $stored_item->nid && $item->data == $stored_item->data) {
+            $model = $stored_item->model;
+          }
+        }
+      }
+      $item->model = $model;
+    }
+    $cart_items[$item->model]['item'] = $item;
+    if (!isset($cart_items[$item->model]['qty'])) {
+      $cart_items[$item->model]['qty'] = 0;
+    }
+    $cart_items[$item->model]['qty'] += $item->qty;
+    $cart_items[$item->model]['key'] = $k;
+  }
+
+  // Now for each model, check the stock    --> note that model = SKU
+  foreach ($cart_items as $model => $cart_item) {
+    $item = $cart_item['item'];
+    $nid = $cart_item['item']->nid;
+    $qty = $cart_item['qty'];
+
+    // Only validates if there are items on the cart, otherwise it's likely
+    // it's being tried to be removed by setting the qty to 0.
+    if ($cart_item['qty'] > 0) {
+      $status = uc_icu_restrictions_validate($nid, $qty);
+      if($status['success'] == FALSE) {
+        form_set_error("items][{$cart_item['key']}][qty", $status['message']);
+      }
+    }
+  }
+}
+
+/**
+ * Validate the 'Order Checkout' and 'Order Review' form preventing the order
+ * going through if the stock information have changed while the user was
+ * browsing the site. (probably shouldnt happen unless you then bought it on another machine)
+ */
+function uc_icu_restrictions_validate_form_checkout($form, &$form_state) {
+  $items = uc_cart_get_contents();
+  uc_icu_restrictions_validate_cart_items($items);
+}
+
+/**
+ * Validate the 'Shopping cart' form preventing the addition of more items than you are allowed
+ */
+function uc_icu_restrictions_validate_form_cart($form, &$form_state) {
+  $items = $form_state['values']['items'];
+  if (substr($form_state['clicked_button']['#name'], 0, 7) != 'remove-') {
+    uc_icu_restrictions_validate_cart_items($items);
   }
 }
