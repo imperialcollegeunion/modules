@@ -90,6 +90,14 @@ function icuclub_admin() {
     '#required' => FALSE,
   );
 
+  $form['icuclub_membership_category'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Membership product type'),
+    '#default_value' => variable_get('iicuclub_membership_category'),
+    '#description' => t("Machine name for the content type which belongs to membership products"),
+    '#required' => TRUE,
+  );
+
 
   return system_settings_form($form); // this will also save
 }
@@ -194,6 +202,7 @@ function icuclub_block_info() {
 
 // View blocks
 function icuclub_block_view($delta = '') {
+  $block = array();
   switch ($delta) {
     case 'membership':
       $block['subject'] = t('My Clubs');
@@ -414,13 +423,13 @@ SELECT [OCNames].[OCNameTypeName]
        drupal_not_found(); // No society
        return;
     }
-  
+
     $res = mssql_fetch_object($result);
     if(!is_object($res)) {
        drupal_not_found(); // No society
        return;
     }
-  
+
     // Load the theme icuclub_club with given parameters
     $nicetitle = $res->OCNameTypeName;
     $clubdesc = $res->LargeProfile;
@@ -516,9 +525,35 @@ SELECT COUNT(*) [NumMemberships]	    ,[Years].[YearID]FROM [PeopleClubMembersh
 
   mssql_close();
 
+  // Get all associated products
+  $query = new EntityFieldQuery();
+  $result = $query->entityCondition('entity_type', 'node')
+  ->propertyCondition('status', 1)
+  ->fieldCondition('field_centre', 'value', $centre, '=')
+  ->execute();
+
+  if(!array_key_exists('node', $result)) {
+    $shop_nodes = array();
+  } else {
+    $shop_nodes = node_load_multiple(array_keys($result['node']));
+  }
+
+  global $icuclub_memberships;
+  if(!isset($icuclub_memberships)) {
+    icuclub_gen_memberships();
+  }
+
+  global $is_erpol_user;
+
+  if(is_array($icuclub_memberships) && array_search($centre, $icuclub_memberships) !== FALSE) {
+    $is_member = true;
+  } else {
+    $is_member = false;
+  }
+
   drupal_set_title($nicetitle);
 
-  $output = theme("icuclub_club", array('clubcentre' => $centre, 'clubdesc' => $clubdesc, 'clubsection' => $sectioncode, 'clubsectionname' => $sectionname, 'clubemail' => $email, 'clubwebsite' => $website, 'clubhasimage' => true, 'clubcommittee' => $committee, 'clubcurrentmembers' => $num_curr, 'clublastmembers' => $num_last));
+  $output = theme("icuclub_club", array('clubcentre' => $centre, 'clubdesc' => $clubdesc, 'clubsection' => $sectioncode, 'clubsectionname' => $sectionname, 'clubemail' => $email, 'clubwebsite' => $website, 'clubhasimage' => true, 'clubcommittee' => $committee, 'clubcurrentmembers' => $num_curr, 'clublastmembers' => $num_last, 'shop_nodes' => $shop_nodes, 'is_member' => $is_member, 'is_erpol_user' => $is_erpol_user));
   return $output;
 }
 

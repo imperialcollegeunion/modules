@@ -11,6 +11,7 @@ files[] = icuclub_block_atoz.tpl.php
 dependencies[] = block
 dependencies[] = search
 dependencies[] = icuerpol
+dependencies[] = uc_product
 
 version = "7.x-1.0"
 core = "7.x"
