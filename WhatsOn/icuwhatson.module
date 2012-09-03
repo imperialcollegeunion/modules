@@ -1,0 +1,333 @@
+<?php
+
+/**
+ * @file
+ * Module file for icuwhatson.
+ */
+
+// Registered URLs for this club
+function icuwhatson_menu() {
+
+  $items['whats-on'] = array(
+      'page callback' => 'icuwhatson', // Page function
+      'page arguments' => array(), // No parameter 
+      'type' => MENU_CALLBACK, // Do not show menu item
+      'access callback' => TRUE, // Page always accessible
+      'title' => 'What\'s On'
+  );
+                    
+  $items['whats-on/month/%/%'] = array(
+    'page callback' => 'icuwhatson_month', // Page function
+    'page arguments' => array(2,3), // Year, Month and interests
+    'type' => MENU_CALLBACK, // Do not show menu item
+    'access callback' => TRUE, // Page always accessible
+  );
+
+  $items['whats-on/day/%'] = array(
+    'page callback' => 'icuwhatson_day', // Page function
+    'page arguments' => array(2), // Start date and interests
+    'type' => MENU_CALLBACK, // Do not show menu item
+    'access callback' => TRUE, // Page always accessible
+  );
+
+  $items['whats-on/event/%'] = array(
+    'page callback' => 'icuwhatson_event', // Page function
+    'page arguments' => array(2), // Start date and interests
+    'type' => MENU_CALLBACK, // Do not show menu item
+    'access callback' => TRUE, // Page always accessible
+  );
+
+  return $items;
+}
+
+// Breadcrumb helper
+function icuwhatson_breadcrumbs() {
+  $breadcrumb = array();
+  $breadcrumb[] = l('Home', '<front>');
+  $breadcrumb[] = l('What\'s On', 'whats-on');
+  
+  drupal_set_breadcrumb($breadcrumb);
+}
+
+// Define templates
+function icuwhatson_theme() {
+  return array(
+    'icuwhatson_month' => array( // name of theme
+      'template' => 'icuwhatson_month' // name of template to load, .tpl.php will be added
+    ),
+    'icuwhatson_day' => array( // name of theme
+      'template' => 'icuwhatson_day' // name of template to load, .tpl.php will be added
+    ),
+    'icuwhatson_event' => array( // name of theme
+      'template' => 'icuwhatson_event' // name of template to load, .tpl.php will be added
+    )
+  );
+}
+
+/* Non-scaffold code is below */
+
+// callback for page
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+//				MONTH
+//
+//
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+function icuwhatson_month($year,$month) {
+  icuwhatson_breadcrumbs();
+  if(!erpol_connect()) {
+    drupal_not_found();
+    return; // db down
+  }
+
+  //Set search dates
+	
+	if($month<12){
+		$monnth = $month + 1;
+		$startofmonth = $month.'/01/'.$year.' 00:00:00';
+		$endofmonth = $monnth.'/01/'.$year.' 00:00:00';
+	}else{
+		$yearr = $year + 1;
+		$startofmonth = $month.'/01/'.$year.' 00:00:00'; 
+		$endofmonth = '01/01/'.$yearr.' 00:00:00';
+	}
+
+
+  //Lookup all possible types of events
+
+	$eventsquery2 = mssql_query("SELECT * FROM WhatsOnEventTypes");
+	$p=0;
+	while($row22 = mssql_fetch_assoc($eventsquery2)){
+		$event[$p][0] = $row22['ID'];
+		$event[$p][1] = $row22['EventTypeDesc'];
+		$p++;
+	}
+
+	$numops = 0;
+	$events1 = '';
+
+  //$p is the number of different event types
+  //If event type has just been posted, insert it into what to search for
+
+	if(isset($_POST['submit'])){
+		for($q=0;$q<$p;$q++){
+			$thisone = 'things'.$event[$q][0];
+			if(isset($_POST[$thisone])){
+				$events1[$numops] = $event[$q][0];
+				$numops++;
+			}
+		}
+	}
+
+  //$numops is the number of different events posted
+
+	$row1 = array();
+	$k = 0;
+	$j = 0;
+	
+  //Check which string to search.	
+	
+	if($numops == '0'){
+    //Do the one without the EventType filter.
+		$result = mssql_query("SELECT * FROM WhatsOnEvents WHERE (EventStart BETWEEN '$startofmonth' AND '$endofmonth') ORDER BY EventStart ASC");
+	  $numresult = mssql_num_rows($result);
+
+    while($row = mssql_fetch_assoc($result)){
+      $row1[$k][1] = $row['EventStart'];
+      $row1[$k][2] = $row['ID'];
+      $row1[$k][3] = $row['EventTitle'];
+      $row1[$k][4] = $row['EventEnd'];
+      $row1[$k][5] = $row['LocationID'];
+      $row1[$k][6] = $row['EventDesc'];
+      $row1[$k][7] = $row['EventType'];
+      $k++;
+    }
+	}else{
+    //Creates the search string for valid events - we're going to make $j = $numops eventually. $k will be number of valid events.
+
+		while($j<$numops){
+			$istring = $events1[$j];
+			$result = mssql_query("SELECT * FROM WhatsOnEvents WHERE (EventStart BETWEEN '$startofmonth' AND '$endofmonth') AND (EventType = '$istring') ORDER BY EventStart ASC");
+			$numresult = mssql_num_rows($result);
+			while($row = mssql_fetch_assoc($result)){
+				$row1[$k][1] = $row['EventStart'];		
+				$row1[$k][2] = $row['ID'];
+				$row1[$k][3] = $row['EventTitle'];
+				$row1[$k][4] = $row['EventEnd'];
+				$row1[$k][5] = $row['LocationID'];
+				$row1[$k][6] = $row['EventDesc'];
+				$row1[$k][7] = $row['EventType'];
+				$k++;	
+			}
+			$j++;
+		}
+	}
+	
+  //$events the possible event types, $events1 the valid event types, $row1 the events themselves, $p, $j, $k their respective numbers.
+
+	mssql_close();
+  drupal_set_title(t('What\'s On - @date', array('@date' => date("F", mktime(0, 0, 0, $month)).' '.$year)));
+	$output = theme("icuwhatson_month", array('month' => $month, 'year' => $year, 'event' => $event, 'events1' => $events1, 'row1' => $row1, 'k' => $k, 'p' => $p, 'j' => $j));
+	return $output;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+//				DAY
+//
+//
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+function icuwhatson_day($date){
+  icuwhatson_breadcrumbs();
+  // dd-mm-yyyy
+
+  if(!erpol_connect()) {
+    drupal_not_found();
+    return; // db down
+  }
+
+  //Set search dates
+  $date1 = explode("-",$date);
+  $startofmonth = $date1[0].'/'.$date1[1].'/'.$date1[2].' 00:00:00';
+  $endofmonth = $date1[0].'/'.$date1[1].'/'.$date1[2].' 23:59:59';
+
+  //Lookup all possible types of events
+	$eventsquery2 = mssql_query("SELECT * FROM WhatsOnEventTypes");
+	$p=0;
+	while($row22 = mssql_fetch_assoc($eventsquery2)){
+		$event[$p][0] = $row22['ID'];
+		$event[$p][1] = $row22['EventTypeDesc'];
+		$p++;
+	}
+
+	$numops = 0;
+	$events1 = '';
+
+  //$p is the number of different event types
+  //If event type has just been posted, insert it into what to search for
+  
+	if(isset($_POST['submit'])){
+		for($q=0;$q<$p;$q++){
+			$thisone = 'things'.$event[$q][0];
+			if(isset($_POST[$thisone])){
+				$events1[$numops] = $event[$q][0];
+				$numops++;
+			}
+		}
+	}
+
+  //$numops is the number of different events posted
+
+	$row1 = array();
+	$k = 0;
+	$j = 0;
+	
+  //Check which string to search.	
+	if($numops == '0'){
+    //Do the one without the EventType filter.
+
+		$result = mssql_query("SELECT * FROM WhatsOnEvents WHERE (EventStart BETWEEN '$startofmonth' AND '$endofmonth') ORDER BY EventStart ASC");
+    $numresult = mssql_num_rows($result);
+    while($row = mssql_fetch_assoc($result)){
+      $row1[$k][1] = $row['EventStart'];
+      $row1[$k][2] = $row['ID'];
+      $row1[$k][3] = $row['EventTitle'];
+      $row1[$k][4] = $row['EventEnd'];
+      $row1[$k][5] = $row['LocationID'];
+      $row1[$k][6] = $row['EventDesc'];
+      $row1[$k][7] = $row['EventType'];
+      $k++;
+    }
+	}else{
+    //Creates the search string for valid events - we're going to make $j = $numops eventually. $k will be number of valid events.
+		while($j<$numops){
+			$istring = $events1[$j];
+			$result = mssql_query("SELECT * FROM WhatsOnEvents WHERE (EventStart BETWEEN '$startofmonth' AND '$endofmonth') AND (EventType = '$istring') ORDER BY EventStart ASC");
+			$numresult = mssql_num_rows($result);
+			while($row = mssql_fetch_assoc($result)){
+				$row1[$k][1] = $row['EventStart'];		
+				$row1[$k][2] = $row['ID'];
+				$row1[$k][3] = $row['EventTitle'];
+				$row1[$k][4] = $row['EventEnd'];
+				$row1[$k][5] = $row['LocationID'];
+				$row1[$k][6] = $row['EventDesc'];
+				$row1[$k][7] = $row['EventType'];
+				$k++;	
+			}
+			$j++;
+		}
+	}
+	
+  //$events the possible event types, $events1 the valid event types, $row1 the events themselves, $p, $j, $k their respective numbers.
+	mssql_close();
+  drupal_set_title(t('What\'s On – @date', array('@date' => date('l jS F Y', strtotime($date)))));
+	$output = theme("icuwhatson_day", array('date' => $date, 'date1' => $date1, 'event' => $event, 'events1' => $events1, 'row1' => $row1, 'k' => $k, 'p' => $p, 'j' => $j));
+	return $output;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+//				EVENT
+//
+//
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+function icuwhatson_event($eventid){
+  icuwhatson_breadcrumbs();
+  if(!erpol_connect()) {
+    drupal_not_found();
+    return; // db down
+  }
+	
+	$eventid = stripslashes($eventid);
+	$qstring = "SELECT * FROM WhatsOnEvents WHERE ID = '$eventid'";
+	$result = mssql_query($qstring);
+
+	$error =0;
+	$numresult = mssql_num_rows($result);
+	if($numresult != '1'){
+    watchdog('whatson', 'Too many events found for ID '.$eventid);
+		return drupal_not_found();
+	}else{
+		$row1 = array();
+		while($row = mssql_fetch_assoc($result)){
+			$row1[1] = $row['EventStart'];		
+			$row1[2] = $row['ID'];
+			$row1[3] = $row['EventTitle'];
+			$row1[4] = $row['EventEnd'];
+			$row1[5] = $row['LocationID'];
+			$row1[6] = $row['EventDesc'];
+			$row1[7] = $row['EventType'];
+		}
+	}
+
+	mssql_close();
+  drupal_set_title(t('What\'s On - @event', array(@event => $row1[3])));
+	$output = theme("icuwhatson_event", array('error' => $error, 'row1' => $row1));
+	return $output;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+//				Main Page
+//
+//
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+function icuwhatson(){
+  icuwhatson_breadcrumbs();
+	$year = date("Y");
+	$month = date("m");
+	drupal_goto('whats-on/month/'.$year.'/'.$month);
+	return;
+}
+
+/**
+ * @} End of "defgroup icuwhatson".
+ */

@@ -1,0 +1,12 @@
+name = ICU Whats On
+description = A module generating urls at /whats-on. Accessing the page will display details pulled in from NewERPOL.
+package = Imperial College Union
+core = 7.x
+files[] = icuwhatson.module
+files[] = icuwhatson_month.tpl.php
+files[] = icuwhatson_day.tpl.php
+files[] = icuwhatson_event.tpl.php
+files[] = README.md
+
+version = "7.x-1.0"
+core = "7.x"
