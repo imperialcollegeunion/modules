@@ -25,11 +25,16 @@ function uc_icu_restrictions_form_alter(&$form, &$form_state, $form_id) {
     if (drupal_substr($form_id, 0, drupal_strlen($id)) == $id ) {
       $form['#validate'][] = 'uc_icu_restrictions_validate_form_addtocart';
       $nid = $form['nid']['#value'];
-      $qty = $form['qty']['#value'];
+      if(!array_key_exists('qty', $form)) {
+        $qty = 1;
+      } else {
+        $qty = $form['qty']['#value'];
+      }
       $error = uc_icu_restrictions_validate($nid, $qty);
       if($error['success'] === FALSE) {
-        $form['actions']['submit']['#disabled'] = TRUE;
-        $form['actions']['submit']['#suffix'] = $error['message'];
+        $form['actions']['submit']['#access'] = FALSE;
+        $form['actions']['#access'] = FALSE;
+        $form['#suffix'] = $error['message'];
       }
     }
   }
@@ -111,6 +116,9 @@ function uc_icu_restrictions_validate($nid, $qty) {
 
   if(!erpol_connect() && $maxorders != 0) {
     $canbuy = false; // If we cant connect to the db, assume we cant buy, unless there is no restriction
+  } elseif($maxorders == 0) {
+    // can always buy if we have no max order
+    $canbuy = true;
   } elseif($maxorders < $qty) {
     // If the quantity to order is above the max quantity, dont allow
     $canbuy = false;
@@ -162,7 +170,12 @@ function uc_icu_restrictions_validate($nid, $qty) {
   }
 
   if(!$canbuy) {
-    return(array('success' => FALSE, 'message' => t('You are only allowed to purchase a maximum of '.$maxorders.' of this product, you have either already purchased your full allocation, or you have added too many to your basket')));
+    return(array('success' => FALSE, 'message' => t('You cannot purchase any more of this product'), 'extmessage' => t('You are only allowed to purchase a maximum of '.$maxorders.' of this product, you have either already purchased your full allocation, or you have added too many to your basket')));
+  }
+ 
+  global $user;
+  if($mode != 'any' && $user->uid == FALSE) {
+    return(array('success' => FALSE, 'message' => t('Please log in to purchase this item')));
   }
 
   switch($mode) {
@@ -294,7 +307,11 @@ function uc_icu_restrictions_validate_cart_items($items) {
     if ($cart_item['qty'] > 0) {
       $status = uc_icu_restrictions_validate($nid, $qty);
       if($status['success'] == FALSE) {
-        form_set_error("items][{$cart_item['key']}][qty", $status['message']);
+        if(array_key_exists('extmessage')) {
+          form_set_error("items][{$cart_item['key']}][qty", $status['extmessage']);
+        } else {
+          form_set_error("items][{$cart_item['key']}][qty", $status['message']);
+        }
       }
     }
   }
